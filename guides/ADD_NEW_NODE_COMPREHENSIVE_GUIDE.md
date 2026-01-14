@@ -351,36 +351,42 @@ if (ImGui::BeginMenu("Audio Path", isNodeSelected))
 
 **File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
 
-**Location:** Inside the `drawInsertNodeOnLinkPopup()` function (~line 6200-6250)
+**Location:** Inside the `drawInsertNodeOnLinkPopup()` function (~line 12600-12700)
 
 **What to add:**
 
-This menu appears when right-clicking on a cable or selecting multiple cables.
+This menu appears when right-clicking on a cable or selecting multiple cables. The system automatically detects the cable type and shows the appropriate list.
 
 ```cpp
 void ImGuiNodeEditorComponent::drawInsertNodeOnLinkPopup()
 {
     if (ImGui::BeginPopup("InsertNodeOnLinkPopup"))
     {
-        // Find the appropriate map (audio or modulation)
+        // Find the appropriate map based on cable type
         const std::map<const char*, const char*> audioInsertable = {
             // ... existing entries ...
             
-            // ADD YOUR MODULE:
+            // ADD YOUR MODULE (for audio cables):
             {"Your Display Name", "your_module"},
         };
         
-        // OR for modulation:
+        // OR for modulation/CV cables:
         const std::map<const char*, const char*> modInsertable = {
             {"Your Display Name", "your_module"},
         };
         
+        // OR for video cables (Computer Vision modules):
+        const std::map<const char*, const char*> videoInsertable = {
+            {"Your Display Name", "your_module"},
+        };
+        
+        // The system automatically selects the right map based on cable type
         // ... rest of function ...
     }
 }
 ```
 
-### Drive Example (line 6214):
+### Drive Example (line 12620):
 
 ```cpp
 const std::map<const char*, const char*> audioInsertable = {
@@ -393,10 +399,26 @@ const std::map<const char*, const char*> audioInsertable = {
 };
 ```
 
+### Video Module Example (line 12672):
+
+```cpp
+const std::map<const char*, const char*> videoInsertable = {
+    {"Video FX", "video_fx"},
+    {"Chromakey", "chromakey"},  // <-- Video module entry
+    {"Video Compositor", "video_compositor"},
+    {"Crop Video", "crop_video"},
+    {"Movement Detector", "movement_detector"},
+    // ... more video modules ...
+};
+```
+
 ### Notes:
-- Use `audioInsertable` for audio path modules
-- Use `modInsertable` for CV/modulation path modules
+- Use `audioInsertable` for audio path modules (audio cables)
+- Use `modInsertable` for CV/modulation path modules (CV/Gate cables)
+- Use `videoInsertable` for video processing modules (Video cables)
 - Format: `{"Display Name", "internal_type"}`
+- The system automatically detects cable type and shows the correct list
+- Video modules should be added to `videoInsertable` for proper cable insertion support
 
 ---
 
@@ -408,9 +430,11 @@ The search system has **three** components that need updating:
 
 **File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
 
-**Location:** Inside the search database initialization (~line 7150-7250)
+**Location:** Inside the search database initialization (~line 14580-14630)
 
 **What to add:**
+
+The search database is a map that enables fuzzy search functionality. Users can type partial module names and find your module.
 
 ```cpp
 // Inside the allModulesSearch map
@@ -423,19 +447,40 @@ static const std::map<const char*, std::pair<const char*, const char*>> allModul
 };
 ```
 
-### Drive Example (line 7170):
+### Drive Example (line ~7170):
 
 ```cpp
 {"Drive", {"drive", "Distortion/overdrive"}},
 ```
 
+### Video Module Example (line ~14592):
+
+```cpp
+{"Chromakey",
+ {"chromakey",
+  "Removes selected colors from video and converts them to alpha transparency, with spill "
+  "suppression and feathering"}},
+{"Video Compositor",
+ {"video_compositor",
+  "Composites multiple video layers with blend modes and transforms"}},
+```
+
+### Important Notes:
+- **Description should be concise** (1-2 sentences) but descriptive
+- **Use proper capitalization** for Display Name (Title Case)
+- **Internal type must match** exactly with factory registration and `getName()`
+- **Description appears in search results** - make it helpful for users
+- **Group related modules together** in the map for easier maintenance
+
 ### 9.2. Category Matcher (Color Coding)
 
 **File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
 
-**Location:** Inside the `getModuleCategory()` function (~line 7050-7100)
+**Location:** Inside the `getModuleCategory()` function (~line 14450-14500)
 
 **What to add:**
+
+The category matcher determines the color coding for modules in the UI. Add your module's internal type name (lowercase) to the appropriate category check.
 
 ```cpp
 ModuleCategory ImGuiNodeEditorComponent::getModuleCategory(const juce::String& moduleName)
@@ -452,11 +497,19 @@ ModuleCategory ImGuiNodeEditorComponent::getModuleCategory(const juce::String& m
         )
         return ModuleCategory::Effect;
     
+    // --- OpenCV / Computer Vision (Cyan) ---
+    if (lower.contains("webcam") || lower.contains("video_file") || 
+        lower == "video_fx" || lower == "chromakey" ||  // <-- Video modules here
+        lower == "video_compositor" || lower.contains("movement") ||
+        // ... more keywords ...
+        )
+        return ModuleCategory::OpenCV;
+    
     // ... more categories ...
 }
 ```
 
-### Drive Example (line 7070):
+### Drive Example (line ~14450):
 
 ```cpp
 if (lower.contains("vcf") || lower.contains("delay") || 
@@ -468,14 +521,38 @@ if (lower.contains("vcf") || lower.contains("delay") ||
     return ModuleCategory::Effect;
 ```
 
+### Video Module Example (line ~14494):
+
+```cpp
+// --- OpenCV / Computer Vision (Cyan) ---
+if (lower.contains("webcam") || lower.contains("video_file") || 
+    lower == "video_fx" || lower == "chromakey" || 
+    lower == "video_compositor" || lower.contains("movement") ||
+    lower == "video_draw_impact" || lower == "crop_video" ||
+    lower.contains("object") || lower.contains("pose") ||
+    lower.contains("hand") || lower.contains("face") ||
+    lower.contains("color") || lower.contains("contour"))
+    return ModuleCategory::OpenCV;
+```
+
 ### Available Categories:
-- `ModuleCategory::Source` - Green
-- `ModuleCategory::Effect` - Red
-- `ModuleCategory::Modulator` - Blue
-- `ModuleCategory::Utility` - Orange
-- `ModuleCategory::Analysis` - Purple
-- `ModuleCategory::Comment` - Grey
-- `ModuleCategory::Plugin` - Teal
+- `ModuleCategory::Source` - Green (oscillators, noise generators, inputs)
+- `ModuleCategory::Effect` - Red (filters, delays, distortion, etc.)
+- `ModuleCategory::Modulator` - Blue (LFOs, envelopes, random)
+- `ModuleCategory::Utility` - Orange (mixers, math, logic, etc.)
+- `ModuleCategory::Analysis` - Purple (scopes, frequency analyzers)
+- `ModuleCategory::Seq` - Light Green (sequencers, timelines)
+- `ModuleCategory::MIDI` - Vibrant Purple (MIDI modules)
+- `ModuleCategory::OpenCV` - Cyan (Computer Vision / Video processing modules)
+- `ModuleCategory::Comment` - Grey (comment nodes)
+- `ModuleCategory::Plugin` - Teal (VST plugins)
+
+### Important Notes:
+- **Use exact match** (`lower == "module_name"`) for specific modules
+- **Use contains** (`lower.contains("keyword")`) for pattern matching
+- **Check is case-insensitive** - module name is converted to lowercase first
+- **Video/Computer Vision modules** should use `ModuleCategory::OpenCV`
+- **Add to the most specific category** that matches your module's primary function
 
 ---
 
@@ -536,12 +613,18 @@ Use this checklist to ensure you've registered your module everywhere:
 - [ ] **7. Top Bar Insert Between Menu** (`ImGuiNodeEditorComponent.cpp` ~line 703)
   - [ ] `if (ImGui::MenuItem("Display Name")) { insertNodeBetween("your_module"); }` added
 
-- [ ] **8. Insert on Cable Menu** (`ImGuiNodeEditorComponent.cpp` ~line 6214)
-  - [ ] Entry added to `audioInsertable` or `modInsertable` map
+- [ ] **8. Insert on Cable Menu** (`ImGuiNodeEditorComponent.cpp` ~line 12600-12700)
+  - [ ] Entry added to appropriate map:
+    - [ ] `audioInsertable` for audio modules
+    - [ ] `modInsertable` for CV/modulation modules
+    - [ ] `videoInsertable` for video/computer vision modules
 
 - [ ] **9. Search System** (`ImGuiNodeEditorComponent.cpp`)
-  - [ ] Search database entry added (~line 7170)
-  - [ ] Category keyword added (~line 7070)
+  - [ ] Search database entry added (~line 14580-14630)
+    - [ ] Display name, internal type, and description included
+  - [ ] Category keyword added (~line 14450-14500)
+    - [ ] Added to appropriate category check (Effect, OpenCV, etc.)
+    - [ ] Uses exact match (`lower == "module_name"`) or contains (`lower.contains("keyword")`)
 
 ---
 
@@ -668,14 +751,23 @@ if (ImGui::MenuItem("Drive")) addAtMouse("drive");  // In Effects submenu
 if (ImGui::MenuItem("Drive")) { insertNodeBetween("drive"); }  // In Audio Path
 ```
 
-### 8. Insert on Cable (line 6214)
+### 8. Insert on Cable (line ~12620)
 ```cpp
-{"Drive", "drive"},  // In audioInsertable map
+// In audioInsertable map (for audio cables)
+{"Drive", "drive"},
+
+// OR in videoInsertable map (for video cables)  
+{"Chromakey", "chromakey"},
+{"Video Compositor", "video_compositor"},
 ```
 
 ### 9. Search System
-- **Database** (line 7170): `{"Drive", {"drive", "Distortion/overdrive"}}`
-- **Category** (line 7070): `lower.contains("drive")`
+- **Database** (line ~14588): `{"Drive", {"drive", "Distortion/overdrive"}}`
+- **Category** (line ~14450): `lower.contains("drive")` in Effects category check
+
+**Video Module Example:**
+- **Database** (line ~14592): `{"Chromakey", {"chromakey", "Removes selected colors from video..."}}`
+- **Category** (line ~14494): `lower == "chromakey"` in OpenCV category check
 
 ---
 

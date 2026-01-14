@@ -92,6 +92,8 @@
 #include "../modules/WebcamLoaderModule.h"
 #include "../modules/VideoFileLoaderModule.h"
 #include "../modules/VideoFXModule.h"
+#include "../modules/ChromakeyModuleProcessor.h"
+#include "../modules/VideoCompositorModule.h"
 #include "../modules/VideoDrawImpactModuleProcessor.h"
 #include "../modules/MovementDetectorModule.h"
 #include "../modules/PoseEstimatorModule.h"
@@ -1125,6 +1127,8 @@ static std::map<juce::String, Creator>& getModuleFactory()
         reg("webcam_loader", [] { return std::make_unique<WebcamLoaderModule>(); });
         reg("video_file_loader", [] { return std::make_unique<VideoFileLoaderModule>(); });
         reg("video_fx", [] { return std::make_unique<VideoFXModule>(); });
+        reg("chromakey", [] { return std::make_unique<ChromakeyModuleProcessor>(); });
+        reg("video_compositor", [] { return std::make_unique<VideoCompositorModule>(); });
         reg("video_draw_impact", [] { return std::make_unique<VideoDrawImpactModuleProcessor>(); });
         reg("movement_detector", [] { return std::make_unique<MovementDetectorModule>(); });
         reg("pose_estimator", [] { return std::make_unique<PoseEstimatorModule>(); });

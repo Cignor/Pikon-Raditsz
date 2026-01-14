@@ -136,6 +136,7 @@ bool ImGuiNodeEditorComponent::s_globalGpuEnabled = true;
 #include "../audio/modules/HandTrackerModule.h"
 #include "../audio/modules/FaceTrackerModule.h"
 #include "../audio/modules/VideoFXModule.h"
+#include "../audio/modules/VideoCompositorModule.h"
 #include "../audio/modules/VideoDrawImpactModuleProcessor.h"
 #include "../audio/modules/CropVideoModule.h"
 #endif
@@ -2192,6 +2193,14 @@ void ImGuiNodeEditorComponent::renderImGui()
                 {
                     insertNodeAfterSelection("video_fx");
                 }
+                if (ImGui::MenuItem("Chromakey"))
+                {
+                    insertNodeAfterSelection("chromakey");
+                }
+                if (ImGui::MenuItem("Video Compositor"))
+                {
+                    insertNodeAfterSelection("video_compositor");
+                }
                 if (ImGui::MenuItem("Video Draw Impact"))
                 {
                     insertNodeAfterSelection("video_draw_impact");
@@ -3532,6 +3541,8 @@ void ImGuiNodeEditorComponent::renderImGui()
             ImGui::Spacing();
             ThemeText("Processors:", theme.text.section_header);
             addModuleButton("Video FX", "video_fx");
+            addModuleButton("Chromakey", "chromakey");
+            addModuleButton("Video Compositor", "video_compositor");
             addModuleButton("Video Draw Impact", "video_draw_impact");
             addModuleButton("Movement Detector", "movement_detector");
             addModuleButton("Object Detector", "object_detector");
@@ -4801,6 +4812,39 @@ void ImGuiNodeEditorComponent::renderImGui()
                         }
                         // Now draw the regular parameters below the video
                         fxModule->drawParametersInNode(
+                            nodeContentWidth, isParamModulated, onModificationEnded);
+                    }
+                    else if (auto* compositorModule = dynamic_cast<VideoCompositorModule*>(mp))
+                    {
+                        juce::Image frame = compositorModule->getLatestFrame();
+                        if (!frame.isNull())
+                        {
+                            if (visionModuleTextures.find((int)lid) == visionModuleTextures.end())
+                            {
+                                visionModuleTextures[(int)lid] =
+                                    std::make_unique<juce::OpenGLTexture>();
+                            }
+                            juce::OpenGLTexture* texture = visionModuleTextures[(int)lid].get();
+                            texture->loadImage(frame);
+                            if (texture->getTextureID() != 0)
+                            {
+                                float  nativeWidth = (float)frame.getWidth();
+                                float  nativeHeight = (float)frame.getHeight();
+                                float  aspectRatio = (nativeWidth > 0.0f)
+                                                         ? nativeHeight / nativeWidth
+                                                         : 0.75f; // Default to 4:3
+                                ImVec2 renderSize =
+                                    ImVec2(nodeContentWidth, nodeContentWidth * aspectRatio);
+                                // Flip Y-coords for correct orientation
+                                ImGui::Image(
+                                    (void*)(intptr_t)texture->getTextureID(),
+                                    renderSize,
+                                    ImVec2(0, 1),
+                                    ImVec2(1, 0));
+                            }
+                        }
+                        // Now draw the regular parameters below the video
+                        compositorModule->drawParametersInNode(
                             nodeContentWidth, isParamModulated, onModificationEnded);
                     }
                     else if (
@@ -7482,8 +7526,12 @@ void ImGuiNodeEditorComponent::renderImGui()
                     if (ImGui::MenuItem("Video File Loader"))
                         addAtMouse("video_file_loader");
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Video FX"))
-                        addAtMouse("video_fx");
+                if (ImGui::MenuItem("Video FX"))
+                    addAtMouse("video_fx");
+                if (ImGui::MenuItem("Chromakey"))
+                    addAtMouse("chromakey");
+                if (ImGui::MenuItem("Video Compositor"))
+                    addAtMouse("video_compositor");
                     if (ImGui::MenuItem("Video Draw Impact"))
                         addAtMouse("video_draw_impact");
                     if (ImGui::MenuItem("Crop Video"))
@@ -12625,6 +12673,8 @@ void ImGuiNodeEditorComponent::drawInsertNodeOnLinkPopup()
             // Computer Vision (Video processing)
             // Passthrough nodes (Video In → Video Out)
             {"Video FX", "video_fx"},
+            {"Chromakey", "chromakey"},
+            {"Video Compositor", "video_compositor"},
             {"Video Draw Impact", "video_draw_impact"},
             {"Crop Video", "crop_video"},
             {"Reroute", "reroute"},
@@ -14441,7 +14491,7 @@ ImGuiNodeEditorComponent::ModuleCategory ImGuiNodeEditorComponent::getModuleCate
 
     // --- 10. COMPUTER VISION (Bright Orange) ---
     if (lower.contains("webcam") || lower.contains("video_file") || lower == "video_fx" ||
-        lower == "video_draw_impact" || lower == "crop_video" || lower.contains("movement") ||
+        lower == "chromakey" || lower == "video_compositor" || lower == "video_draw_impact" || lower == "crop_video" || lower.contains("movement") ||
         lower.contains("detector") || lower.contains("opencv") || lower.contains("vision") ||
         lower.contains("tracker") || lower.contains("segmentation") ||
         lower.contains("pose_estimator"))
@@ -14539,6 +14589,13 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
          {"video_fx",
           "Applies real-time video effects (brightness, contrast, saturation, blur, sharpen, etc.) "
           "to video sources, chainable"}},
+        {"Chromakey",
+         {"chromakey",
+          "Removes selected colors from video and converts them to alpha transparency, with spill "
+          "suppression and feathering"}},
+        {"Video Compositor",
+         {"video_compositor",
+          "Composites multiple video layers with blend modes and transforms"}},
         {"Video Draw Impact",
          {"video_draw_impact",
           "Allows drawing colored impact marks on video frames. Drawings persist for a "
@@ -15517,6 +15574,7 @@ void ImGuiNodeEditorComponent::populateDragInsertSuggestions()
 #ifndef AUDIO_ONLY_BUILD
     addOutputModule(PinDataType::Video, "webcam_loader");
     addOutputModule(PinDataType::Video, "video_file_loader");
+    addOutputModule(PinDataType::Video, "chromakey");
 #endif
 
     std::vector<PinDataType> types = {

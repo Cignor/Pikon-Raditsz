@@ -261,6 +261,8 @@ void WebcamLoaderModule::run()
         cv::Mat frame;
         if (videoCapture.read(frame) && !frame.empty())
         {
+            auto t0 = juce::Time::getMillisecondCounterHiRes();
+
             // Publish frame to central manager using this module's logical ID
             // Re-check ID in case it wasn't ready at start
             if (myLogicalId == 0)
@@ -270,6 +272,10 @@ void WebcamLoaderModule::run()
 
             // Update local preview for UI (lazy conversion)
             updateGuiFrame(frame);
+
+            auto elapsed = juce::Time::getMillisecondCounterHiRes() - t0;
+            lastProcessTimeMs = (float)elapsed;
+            lastProcessWasGpu = false;
         }
         else
         {
@@ -645,7 +651,7 @@ void WebcamLoaderModule::drawParametersInNode(
 
         if (!autoExp)
         {
-            bool expModulated = isParamModulated("exposure");
+            bool  expModulated = isParamModulated("exposure");
             float exp = exposureParam->load();
             if (expModulated)
                 ImGui::BeginDisabled();
@@ -680,7 +686,7 @@ void WebcamLoaderModule::drawParametersInNode(
 
         if (!autoFocus)
         {
-            bool focusModulated = isParamModulated("focus");
+            bool  focusModulated = isParamModulated("focus");
             float focus = focusParam->load();
             if (focusModulated)
                 ImGui::BeginDisabled();
@@ -705,7 +711,7 @@ void WebcamLoaderModule::drawParametersInNode(
     // Gain
     if (gainParam)
     {
-        bool gainModulated = isParamModulated("gain");
+        bool  gainModulated = isParamModulated("gain");
         float gain = gainParam->load();
         if (gainModulated)
             ImGui::BeginDisabled();
@@ -739,7 +745,7 @@ void WebcamLoaderModule::drawParametersInNode(
 
         if (!autoWB)
         {
-            bool wbModulated = isParamModulated("wbTemperature");
+            bool  wbModulated = isParamModulated("wbTemperature");
             float wb = wbTemperatureParam->load();
             if (wbModulated)
                 ImGui::BeginDisabled();
@@ -772,6 +778,7 @@ void WebcamLoaderModule::drawParametersInNode(
         ImGui::Text("%dx%d @ %.1f FPS", actualWidth.load(), actualHeight.load(), actualFps.load());
     }
 
+    drawPerformanceMetrics(itemWidth);
     ImGui::PopItemWidth();
 }
 

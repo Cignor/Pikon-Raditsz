@@ -17,39 +17,43 @@
 
 // <<< TRANSPORT STATE FOR GLOBAL CLOCK >>>
 // Transport commands for Play/Pause/Stop intent
-enum class TransportCommand : int { Play = 0, Pause = 1, Stop = 2 };
+enum class TransportCommand : int
+{
+    Play = 0,
+    Pause = 1,
+    Stop = 2
+};
 
 // Transport state struct shared by all modules
-struct TransportState {
-    bool isPlaying = false;
+struct TransportState
+{
+    bool   isPlaying = false;
     double bpm = 120.0;
     double songPositionBeats = 0.0;
     double songPositionSeconds = 0.0;
     // Optional global division broadcast from a master tempo/clock (-1 means inactive)
-    std::atomic<int> globalDivisionIndex { -1 };
+    std::atomic<int> globalDivisionIndex{-1};
     // Flag to indicate if a Tempo Clock module is controlling the BPM (for UI feedback)
-    std::atomic<bool> isTempoControlledByModule { false };
+    std::atomic<bool> isTempoControlledByModule{false};
     // Last transport command issued (Play/Pause/Stop)
-    std::atomic<TransportCommand> lastCommand { TransportCommand::Stop };
-    
+    std::atomic<TransportCommand> lastCommand{TransportCommand::Stop};
+
     // Global reset flag (Pulse)
     // When true, all time-based modules (LFOs, Sequencers) must reset phase to 0
     // This is set to true for one block when a Timeline Master (e.g., SampleLoader) loops
-    std::atomic<bool> forceGlobalReset { false };
-    
+    std::atomic<bool> forceGlobalReset{false};
+
     // Custom copy constructor (atomics are not copyable by default)
     TransportState() = default;
     TransportState(const TransportState& other)
-        : isPlaying(other.isPlaying)
-        , bpm(other.bpm)
-        , songPositionBeats(other.songPositionBeats)
-        , songPositionSeconds(other.songPositionSeconds)
-        , globalDivisionIndex(other.globalDivisionIndex.load())
-        , isTempoControlledByModule(other.isTempoControlledByModule.load())
-        , lastCommand(other.lastCommand.load())
-        , forceGlobalReset(other.forceGlobalReset.load())
-    {}
-    
+        : isPlaying(other.isPlaying), bpm(other.bpm), songPositionBeats(other.songPositionBeats),
+          songPositionSeconds(other.songPositionSeconds),
+          globalDivisionIndex(other.globalDivisionIndex.load()),
+          isTempoControlledByModule(other.isTempoControlledByModule.load()),
+          lastCommand(other.lastCommand.load()), forceGlobalReset(other.forceGlobalReset.load())
+    {
+    }
+
     // Custom copy assignment operator
     TransportState& operator=(const TransportState& other)
     {
@@ -76,15 +80,22 @@ struct TransportState {
  */
 struct RhythmInfo
 {
-    juce::String displayName;    // e.g., "Sequencer #3", "Animation: Walk Cycle"
-    float bpm;                    // Current BPM (can be modulated live value)
-    bool isActive;                // Is this source currently producing rhythm?
-    bool isSynced;                // Is it synced to global transport?
-    juce::String sourceType;      // "sequencer", "animation", "physics", etc.
-    
+    juce::String displayName; // e.g., "Sequencer #3", "Animation: Walk Cycle"
+    float        bpm;         // Current BPM (can be modulated live value)
+    bool         isActive;    // Is this source currently producing rhythm?
+    bool         isSynced;    // Is it synced to global transport?
+    juce::String sourceType;  // "sequencer", "animation", "physics", etc.
+
     RhythmInfo() : bpm(0.0f), isActive(false), isSynced(false) {}
-    RhythmInfo(const juce::String& name, float bpmValue, bool active, bool synced, const juce::String& type = "")
-        : displayName(name), bpm(bpmValue), isActive(active), isSynced(synced), sourceType(type) {}
+    RhythmInfo(
+        const juce::String& name,
+        float               bpmValue,
+        bool                active,
+        bool                synced,
+        const juce::String& type = "")
+        : displayName(name), bpm(bpmValue), isActive(active), isSynced(synced), sourceType(type)
+    {
+    }
 };
 
 /**
@@ -93,23 +104,26 @@ struct RhythmInfo
  */
 struct DetectedRhythmSource
 {
-    juce::String name;            // e.g., "Input 1 (Detected)"
-    int inputChannel;             // Which input is being analyzed
-    float detectedBPM;            // Calculated BPM from beat detection
-    float confidence;             // 0.0-1.0 (how stable is the detection)
-    bool isActive;                // Currently detecting beats?
-    
-    DetectedRhythmSource() : inputChannel(-1), detectedBPM(0.0f), confidence(0.0f), isActive(false) {}
+    juce::String name;         // e.g., "Input 1 (Detected)"
+    int          inputChannel; // Which input is being analyzed
+    float        detectedBPM;  // Calculated BPM from beat detection
+    float        confidence;   // 0.0-1.0 (how stable is the detection)
+    bool         isActive;     // Currently detecting beats?
+
+    DetectedRhythmSource() : inputChannel(-1), detectedBPM(0.0f), confidence(0.0f), isActive(false)
+    {
+    }
 };
 
 // <<< MULTI-MIDI DEVICE SUPPORT >>>
 // MIDI message with device source information
 // This struct allows modules to filter MIDI by device and channel
-struct MidiMessageWithDevice {
+struct MidiMessageWithDevice
+{
     juce::MidiMessage message;
-    juce::String deviceIdentifier;
-    juce::String deviceName;
-    int deviceIndex = -1;
+    juce::String      deviceIdentifier;
+    juce::String      deviceName;
+    int               deviceIndex = -1;
 };
 
 // <<< OSC SUPPORT >>>
@@ -120,7 +134,14 @@ struct MidiMessageWithDevice {
 // <<< ALL PIN-RELATED DEFINITIONS ARE NOW CENTRALIZED HERE >>>
 
 // Defines the data type of a modulation or audio signal
-enum class PinDataType { CV, Audio, Gate, Raw, Video };
+enum class PinDataType
+{
+    CV,
+    Audio,
+    Gate,
+    Raw,
+    Video
+};
 
 // Forward declare NodeWidth enum (defined in ImGuiNodeEditorComponent.h)
 // This avoids circular dependency while allowing ModulePinInfo to store it
@@ -130,17 +151,18 @@ enum class NodeWidth;
 struct AudioPin
 {
     juce::String name;
-    int channel;
-    PinDataType type;
-    
+    int          channel;
+    PinDataType  type;
+
     AudioPin(const juce::String& n, int ch, PinDataType t) : name(n), channel(ch), type(t) {}
 };
 
 // Renamed to avoid conflict with ImGuiNodeEditorComponent's PinInfo
-struct DynamicPinInfo {
+struct DynamicPinInfo
+{
     juce::String name;
-    int channel;
-    PinDataType type;
+    int          channel;
+    PinDataType  type;
 
     // Constructor to allow brace-initialization
     DynamicPinInfo(const juce::String& n, int c, PinDataType t) : name(n), channel(c), type(t) {}
@@ -151,26 +173,32 @@ struct ModPin
 {
     juce::String name;
     juce::String paramId;
-    PinDataType type;
-    
-    ModPin(const juce::String& n, const juce::String& p, PinDataType t) : name(n), paramId(p), type(t) {}
+    PinDataType  type;
+
+    ModPin(const juce::String& n, const juce::String& p, PinDataType t)
+        : name(n), paramId(p), type(t)
+    {
+    }
 };
 
 // A collection of all pins for a given module type
 struct ModulePinInfo
 {
-    NodeWidth defaultWidth;  // Standardized node width category
+    NodeWidth             defaultWidth; // Standardized node width category
     std::vector<AudioPin> audioIns;
     std::vector<AudioPin> audioOuts;
-    std::vector<ModPin> modIns;
-    
-    ModulePinInfo() : defaultWidth(static_cast<NodeWidth>(0)) {}  // Default to Small (0)
-    
-    ModulePinInfo(NodeWidth width,
-                  std::initializer_list<AudioPin> ins,
-                  std::initializer_list<AudioPin> outs,
-                  std::initializer_list<ModPin> mods)
-        : defaultWidth(width), audioIns(ins), audioOuts(outs), modIns(mods) {}
+    std::vector<ModPin>   modIns;
+
+    ModulePinInfo() : defaultWidth(static_cast<NodeWidth>(0)) {} // Default to Small (0)
+
+    ModulePinInfo(
+        NodeWidth                       width,
+        std::initializer_list<AudioPin> ins,
+        std::initializer_list<AudioPin> outs,
+        std::initializer_list<ModPin>   mods)
+        : defaultWidth(width), audioIns(ins), audioOuts(outs), modIns(mods)
+    {
+    }
 };
 
 // Forward declaration for NodePinHelpers
@@ -181,7 +209,8 @@ struct NodePinHelpers
 {
     std::function<void(const char* label, int channel)> drawAudioInputPin;
     std::function<void(const char* label, int channel)> drawAudioOutputPin;
-    std::function<void(const char* inLabel, int inChannel, const char* outLabel, int outChannel)> drawParallelPins;
+    std::function<void(const char* inLabel, int inChannel, const char* outLabel, int outChannel)>
+                                                 drawParallelPins;
     std::function<void(ModuleProcessor* module)> drawIoPins;
 };
 
@@ -201,7 +230,7 @@ public:
     ~ModuleProcessor() override = default;
 
     // Parent container link (set by ModularSynthProcessor when node is created)
-    void setParent(ModularSynthProcessor* parent) { parentSynth = parent; }
+    void                   setParent(ModularSynthProcessor* parent) { parentSynth = parent; }
     ModularSynthProcessor* getParent() const { return parentSynth; }
 
     // Pure virtual method that all concrete modules MUST implement.
@@ -209,10 +238,48 @@ public:
     virtual juce::AudioProcessorValueTreeState& getAPVTS() = 0;
 
     // Optional UI hook for drawing parameters inside nodes (used by Preset Creator)
-    virtual void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+    virtual void drawParametersInNode(
+        float                                                   itemWidth,
+        const std::function<bool(const juce::String& paramId)>& isParamModulated,
+        const std::function<void()>&                            onModificationEnded)
     {
         juce::ignoreUnused(itemWidth, isParamModulated, onModificationEnded);
     }
+
+#if defined(PRESET_CREATOR_UI)
+    // Helper to draw standardized performance metrics
+    void drawPerformanceMetrics(float width)
+    {
+        const float ms = lastProcessTimeMs.load(std::memory_order_relaxed);
+        const bool  gpu = lastProcessWasGpu.load(std::memory_order_relaxed);
+
+        if (ms < 0.0f)
+            return; // Hide if invalid (uninitialized)
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Text("CPU: %.2f ms", ms);
+        ImGui::SameLine();
+        if (gpu)
+            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "GPU: ON");
+        else
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "GPU: OFF");
+
+        // Gauge relative to 33ms (30fps)
+        float progress = juce::jlimit(0.0f, 1.0f, ms / 33.3f);
+
+        // Color code the bar
+        ImVec4 color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); // Green
+        if (progress > 0.5f)
+            color = ImVec4(1.0f, 0.8f, 0.0f, 1.0f); // Yellow
+        if (progress > 0.9f)
+            color = ImVec4(1.0f, 0.2f, 0.2f, 1.0f); // Red
+
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
+        ImGui::ProgressBar(progress, ImVec2(width, 0.0f));
+        ImGui::PopStyleColor();
+    }
+#endif
 
     // Optional UI hook for drawing IO pins inside nodes
     virtual void drawIoPins(const NodePinHelpers& /*helpers*/) {}
@@ -225,21 +292,21 @@ public:
     // Optional UI hook for modules that need custom node dimensions (Exception size category)
     // Return ImVec2(width, height) for custom size, or ImVec2(0, 0) to use default from PinDatabase
     // Height of 0 means auto-size to content (recommended for most cases)
-    virtual ImVec2 getCustomNodeSize() const 
-    { 
+    virtual ImVec2 getCustomNodeSize() const
+    {
         return ImVec2(0.0f, 0.0f); // Default: use PinDatabase size
     }
 #endif
 
-
     // Get the current output value for a channel (for visualization)
     virtual float getOutputChannelValue(int channel) const
     {
-        if (juce::isPositiveAndBelow(channel, (int)lastOutputValues.size()) && lastOutputValues[channel])
+        if (juce::isPositiveAndBelow(channel, (int)lastOutputValues.size()) &&
+            lastOutputValues[channel])
             return lastOutputValues[channel]->load();
         return 0.0f;
     }
-    
+
     // Helper method to update output telemetry with peak magnitude
     // Call this at the end of processBlock to update visualization values
     void updateOutputTelemetry(const juce::AudioBuffer<float>& buffer)
@@ -268,67 +335,69 @@ public:
     }
 
     // Stable logical ID assigned by ModularSynthProcessor upon node creation.
-    void setLogicalId(juce::uint32 id) { storedLogicalId = id; }
+    void         setLogicalId(juce::uint32 id) { storedLogicalId = id; }
     juce::uint32 getLogicalId() const { return storedLogicalId; }
 
     // Secondary logical ID for extra outputs (like cropped video from detector nodes)
-    void setSecondaryLogicalId(juce::uint32 id) { storedSecondaryLogicalId = id; }
+    void         setSecondaryLogicalId(juce::uint32 id) { storedSecondaryLogicalId = id; }
     juce::uint32 getSecondaryLogicalId() const { return storedSecondaryLogicalId; }
 
     // === COMPREHENSIVE DIAGNOSTICS SYSTEM ===
-    
+
     // Get detailed connection information for debugging
     virtual juce::String getConnectionDiagnostics() const
     {
         juce::String result = "=== CONNECTION DIAGNOSTICS ===\n";
-        
+
         // Bus layout info
         result += "Input Buses: " + juce::String(getBusCount(true)) + "\n";
         result += "Output Buses: " + juce::String(getBusCount(false)) + "\n";
-        
+
         for (int bus = 0; bus < getBusCount(true); ++bus)
         {
             auto busName = getBus(true, bus)->getName();
             auto numChannels = getBus(true, bus)->getNumberOfChannels();
-            result += "  Input Bus " + juce::String(bus) + ": \"" + busName + "\" (" + juce::String(numChannels) + " channels)\n";
+            result += "  Input Bus " + juce::String(bus) + ": \"" + busName + "\" (" +
+                      juce::String(numChannels) + " channels)\n";
         }
-        
+
         for (int bus = 0; bus < getBusCount(false); ++bus)
         {
             auto busName = getBus(false, bus)->getName();
             auto numChannels = getBus(false, bus)->getNumberOfChannels();
-            result += "  Output Bus " + juce::String(bus) + ": \"" + busName + "\" (" + juce::String(numChannels) + " channels)\n";
+            result += "  Output Bus " + juce::String(bus) + ": \"" + busName + "\" (" +
+                      juce::String(numChannels) + " channels)\n";
         }
-        
+
         return result;
     }
-    
+
     // Get parameter routing diagnostics
     virtual juce::String getParameterRoutingDiagnostics() const
     {
         juce::String result = "=== PARAMETER ROUTING DIAGNOSTICS ===\n";
-        
+
         // Note: This method is const, so we can't access getAPVTS() directly
         // We'll return a placeholder for now
         result += "Parameter routing diagnostics require non-const access.\n";
         result += "Use getModuleDiagnostics() from ModularSynthProcessor instead.\n";
-        
+
         return result;
     }
-    
+
     // Get live parameter values for debugging
     virtual juce::String getLiveParameterDiagnostics() const
     {
         juce::String result = "=== LIVE PARAMETER VALUES ===\n";
-        
+
         for (const auto& pair : paramLiveValues)
         {
             result += "  " + pair.first + ": " + juce::String(pair.second.load(), 4) + "\n";
         }
-        
+
         return result;
     }
-    
+
     // Get comprehensive module diagnostics
     virtual juce::String getAllDiagnostics() const
     {
@@ -340,7 +409,6 @@ public:
         return result;
     }
 
-
     /**
         Resolves a parameter's string ID to its modulation bus and channel.
 
@@ -348,14 +416,18 @@ public:
         parameters can be modulated by an external signal. The function maps parameter IDs
         to their corresponding input bus and channel indices within that bus.
 
-        @param paramId              The string ID of the parameter to query (e.g., "cutoff", "frequency").
+        @param paramId              The string ID of the parameter to query (e.g., "cutoff",
+       "frequency").
         @param outBusIndex          Receives the index of the input bus used for modulation.
         @param outChannelIndexInBus Receives the channel index within that bus.
         @returns                    True if the parameter supports modulation, false otherwise.
-        
+
         @see isParamInputConnected
     */
-    virtual bool getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const;
+    virtual bool getParamRouting(
+        const juce::String& paramId,
+        int&                outBusIndex,
+        int&                outChannelIndexInBus) const;
 
     /**
         Checks if a parameter's modulation input is connected in the synth graph.
@@ -367,7 +439,7 @@ public:
 
         @param paramId The string ID of the parameter to check (e.g., "cutoff", "frequency").
         @returns       True if a cable is connected to this parameter's modulation input.
-        
+
         @see getParamRouting
     */
     bool isParamInputConnected(const juce::String& paramId) const;
@@ -396,9 +468,10 @@ public:
     // New helper: decouple the connectivity check (modParamId) from the live value key (liveKey).
     // This allows UI code to ask "is X_mod connected?" while reading the corresponding
     // live telemetry stored under a different key like "X_live".
-    float getLiveParamValueFor(const juce::String& modParamId,
-                               const juce::String& liveKey,
-                               float fallback) const
+    float getLiveParamValueFor(
+        const juce::String& modParamId,
+        const juce::String& liveKey,
+        float               fallback) const
     {
         if (isParamInputConnected(modParamId))
         {
@@ -411,55 +484,55 @@ public:
     // Optional extra state hooks for modules that need to persist non-parameter data
     // Default: return invalid tree / ignore.
     virtual juce::ValueTree getExtraStateTree() const { return {}; }
-    virtual void setExtraStateTree(const juce::ValueTree&) {}
-    
+    virtual void            setExtraStateTree(const juce::ValueTree&) {}
+
     // Optional timing info hook for modules that need global clock/transport
     // Default: ignore (modules that don't need timing can skip implementing this)
     virtual void setTimingInfo(const TransportState& state) { juce::ignoreUnused(state); }
-    
+
     // Optional force stop hook for modules with playback state
     // Called after patch load to ensure all modules are stopped
     // Default: no-op (modules without playback state don't need this)
     virtual void forceStop() {}
-    
+
     // Optional rhythm reporting hook for BPM Monitor node
     // Modules that produce rhythmic patterns can implement this to report their BPM
     // Default: return empty (module doesn't produce rhythm)
     virtual std::optional<RhythmInfo> getRhythmInfo() const { return std::nullopt; }
-    
+
     // === TIMELINE REPORTING INTERFACE (for Timeline Sync feature) ===
     // Modules that can provide timeline position/duration (e.g., SampleLoader, VideoLoader)
     // should override these methods to report their state atomically.
     // Default: module does not provide timeline (returns false/0)
-    
-    virtual bool canProvideTimeline() const { return false; }
+
+    virtual bool   canProvideTimeline() const { return false; }
     virtual double getTimelinePositionSeconds() const { return 0.0; }
     virtual double getTimelineDurationSeconds() const { return 0.0; }
-    virtual bool isTimelineActive() const { return false; }
-    
+    virtual bool   isTimelineActive() const { return false; }
+
     // Optional dynamic pin interface for modules with variable I/O (e.g., polyphonic modules)
     // Default: return empty vector (no dynamic pins)
     virtual std::vector<DynamicPinInfo> getDynamicInputPins() const { return {}; }
     virtual std::vector<DynamicPinInfo> getDynamicOutputPins() const { return {}; }
-    
+
     /**
         Device-aware MIDI processing (MULTI-MIDI CONTROLLER SUPPORT)
-        
+
         This method is called by ModularSynthProcessor BEFORE the standard graph processing
         begins. It provides MIDI modules with device-aware MIDI messages that include the
         source device information (name, identifier, index).
-        
+
         MIDI modules should override this method to:
         - Filter messages by device (e.g., only respond to a specific controller)
         - Filter messages by MIDI channel
         - Update internal state based on filtered MIDI input
-        
+
         The regular processBlock() can then use this updated state to generate CV outputs.
-        
+
         @param midiMessages A vector of MIDI messages with device source information
-        
+
         Default implementation: Does nothing (opt-in for MIDI modules only)
-        
+
         @see MidiMessageWithDevice
     */
     virtual void handleDeviceSpecificMidi(const std::vector<MidiMessageWithDevice>& midiMessages)
@@ -467,28 +540,29 @@ public:
         juce::ignoreUnused(midiMessages);
         // Default: do nothing. MIDI-aware modules will override this method.
     }
-    
+
     /**
         OSC signal processing (NETWORK-BASED CONTROL)
-        
+
         This method is called by ModularSynthProcessor BEFORE the standard graph processing
         begins. It provides OSC modules with network-originated OSC messages that include
         source information (identifier, name, index).
-        
+
         OSC modules should override this method to:
         - Filter messages by source (e.g., only respond to a specific OSC device)
         - Filter messages by OSC address pattern (e.g., "/cv/pitch", "/synth/note/on")
         - Update internal state based on filtered OSC input
-        
+
         The regular processBlock() can then use this updated state to generate CV outputs.
-        
+
         @param oscMessages A vector of OSC messages with source information
-        
+
         Default implementation: Does nothing (opt-in for OSC modules only)
-        
+
         @see OscMessageWithSource
     */
-    virtual void handleOscSignal(const std::vector<OscDeviceManager::OscMessageWithSource>& oscMessages)
+    virtual void handleOscSignal(
+        const std::vector<OscDeviceManager::OscMessageWithSource>& oscMessages)
     {
         juce::ignoreUnused(oscMessages);
         // Default: do nothing. OSC-aware modules will override this method.
@@ -499,70 +573,83 @@ public:
     // Live, modulated parameter values for UI feedback
     std::unordered_map<juce::String, std::atomic<float>> paramLiveValues;
 
+    // Performance telemetry (CPU usage in ms, GPU active status)
+    std::atomic<float> lastProcessTimeMs{0.0f};
+    std::atomic<bool>  lastProcessWasGpu{false};
+
 protected:
     // Thread-safe storage for last known output values (for tooltips)
     std::vector<std::unique_ptr<std::atomic<float>>> lastOutputValues;
 
 #if defined(PRESET_CREATOR_UI)
 
-    static void adjustParamOnWheel (juce::RangedAudioParameter* parameter,
-                                    const juce::String& idOrName,
-                                    float displayedValue)
+    static void adjustParamOnWheel(
+        juce::RangedAudioParameter* parameter,
+        const juce::String&         idOrName,
+        float                       displayedValue)
     {
-        if (parameter == nullptr) return;
-        if (! ImGui::IsItemHovered()) return;
+        if (parameter == nullptr)
+            return;
+        if (!ImGui::IsItemHovered())
+            return;
         const float wheel = ImGui::GetIO().MouseWheel;
-        if (wheel == 0.0f) return;
+        if (wheel == 0.0f)
+            return;
 
         if (auto* pf = dynamic_cast<juce::AudioParameterFloat*>(parameter))
         {
             // No right-click editing here; modules can add InputFloat next to sliders
 
-            const auto& range = pf->range;
-            const float span = range.end - range.start;
+            const auto&        range = pf->range;
+            const float        span = range.end - range.start;
             const juce::String id = idOrName.toLowerCase();
 
             float step = span / 200.0f; // default ~0.5% of range
-            if (span <= 1.0f) step = 0.01f;
+            if (span <= 1.0f)
+                step = 0.01f;
             // Custom: fine tune for sequencer steps
-            if (id.contains ("step"))
+            if (id.contains("step"))
             {
                 step = 0.05f;
             }
-            if (id.contains ("hz") || id.contains ("freq") || id.contains ("cutoff") || id.contains ("rate"))
+            if (id.contains("hz") || id.contains("freq") || id.contains("cutoff") ||
+                id.contains("rate"))
             {
-                const float v = std::max (1.0f, std::abs (displayedValue));
-                step = std::max (1.0f, std::pow (10.0f, std::floor (std::log10 (v)) - 1.0f));
+                const float v = std::max(1.0f, std::abs(displayedValue));
+                step = std::max(1.0f, std::pow(10.0f, std::floor(std::log10(v)) - 1.0f));
             }
-            else if (id.contains ("ms") || id.contains ("time"))
+            else if (id.contains("ms") || id.contains("time"))
             {
-                const float v = std::max (1.0f, std::abs (displayedValue));
-                step = std::max (0.1f, std::pow (10.0f, std::floor (std::log10 (v)) - 1.0f));
+                const float v = std::max(1.0f, std::abs(displayedValue));
+                step = std::max(0.1f, std::pow(10.0f, std::floor(std::log10(v)) - 1.0f));
             }
-            else if (id.contains ("db") || id.contains ("gain"))
+            else if (id.contains("db") || id.contains("gain"))
             {
                 step = 0.5f;
             }
-            else if (id.contains ("mix") || id.contains ("depth") || id.contains ("amount") || id.contains ("resonance") || id.contains ("q") || id.contains ("size") || id.contains ("damp") || id.contains ("pan") || id.contains ("threshold"))
+            else if (
+                id.contains("mix") || id.contains("depth") || id.contains("amount") ||
+                id.contains("resonance") || id.contains("q") || id.contains("size") ||
+                id.contains("damp") || id.contains("pan") || id.contains("threshold"))
             {
                 step = 0.01f;
             }
 
             float newVal = pf->get() + (wheel > 0 ? step : -step);
-            newVal = juce::jlimit (range.start, range.end, newVal);
+            newVal = juce::jlimit(range.start, range.end, newVal);
             *pf = newVal;
         }
         else if (auto* pc = dynamic_cast<juce::AudioParameterChoice*>(parameter))
         {
             int idx = pc->getIndex();
             idx += (ImGui::GetIO().MouseWheel > 0 ? 1 : -1);
-            idx = juce::jlimit (0, pc->choices.size() - 1, idx);
+            idx = juce::jlimit(0, pc->choices.size() - 1, idx);
             *pc = idx;
         }
         else if (auto* pi = dynamic_cast<juce::AudioParameterInt*>(parameter))
         {
-            int currentVal = pi->get();
-            int newVal = currentVal + (wheel > 0 ? 1 : -1);
+            int         currentVal = pi->get();
+            int         newVal = currentVal + (wheel > 0 ? 1 : -1);
             const auto& range = pi->getNormalisableRange();
             newVal = juce::jlimit((int)range.start, (int)range.end, newVal);
             *pi = newVal;
@@ -570,7 +657,7 @@ protected:
         else if (auto* pb = dynamic_cast<juce::AudioParameterBool*>(parameter))
         {
             // Optional: toggle on strong scroll
-            juce::ignoreUnused (pb);
+            juce::ignoreUnused(pb);
         }
     }
 
@@ -585,7 +672,7 @@ public:
         int absoluteChannel = channelIndexInBus;
         if (busIndex > 0)
         {
-            int sum = 0;
+            int       sum = 0;
             const int numBuses = getBusCount(isInput);
             for (int b = 0; b < numBuses && b < busIndex; ++b)
                 sum += getChannelCountOfBus(isInput, b);
@@ -598,25 +685,25 @@ public:
     // Provide default implementations for the pure virtuals to reduce boilerplate
     // in concrete module classes.
     //==============================================================================
-    const juce::String getName() const override { return "Module"; }
-    bool acceptsMidi() const override { return false; }
-    bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    const juce::String          getName() const override { return "Module"; }
+    bool                        acceptsMidi() const override { return false; }
+    bool                        producesMidi() const override { return false; }
+    double                      getTailLengthSeconds() const override { return 0.0; }
     juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool hasEditor() const override { return false; }
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
-    void changeProgramName (int, const juce::String&) override {}
-    void getStateInformation (juce::MemoryBlock&) override {}
-    void setStateInformation (const void*, int) override {}
+    bool                        hasEditor() const override { return false; }
+    int                         getNumPrograms() override { return 1; }
+    int                         getCurrentProgram() override { return 0; }
+    void                        setCurrentProgram(int) override {}
+    const juce::String          getProgramName(int) override { return {}; }
+    void                        changeProgramName(int, const juce::String&) override {}
+    void                        getStateInformation(juce::MemoryBlock&) override {}
+    void                        setStateInformation(const void*, int) override {}
 
 private:
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ModuleProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModuleProcessor)
 
 protected:
-    ModularSynthProcessor* parentSynth { nullptr };
-    juce::uint32 storedLogicalId { 0 };
-    juce::uint32 storedSecondaryLogicalId { 0 };
+    ModularSynthProcessor* parentSynth{nullptr};
+    juce::uint32           storedLogicalId{0};
+    juce::uint32           storedSecondaryLogicalId{0};
 };

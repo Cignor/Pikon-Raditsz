@@ -145,6 +145,7 @@ The "Beautify Layout" function handles exception nodes by:
 - [pose_estimator](#pose_estimator) - Body Keypoint Detection
 - [hand_tracker](#hand_tracker) - Hand Keypoint Tracking
 - [face_tracker](#face_tracker) - Facial Landmark Tracking
+- [chromakey](#chromakey) - Chromakey Video Processor
 - [color_tracker](#color_tracker) - Multi-Color Tracking
 - [contour_detector](#contour_detector) - Shape Detection
 - [video_fx](#video_fx) - Real-Time Video Effects
@@ -2675,6 +2676,42 @@ Uses YOLOv3 deep learning model to detect objects from 80 COCO classes (person, 
 - Runs at ~10 FPS on CPU
 - Outputs normalized bounding box coordinates
 - Falls back to YOLOv3-tiny if standard model not available
+
+---
+
+### chromakey
+**Chromakey Video Processor**
+
+Removes selected colors from video frames and converts them to alpha transparency (Green Screen effect). Supports multiple color selection with ColorTracker-style HSV range matching, median sampling, spill suppression, and edge feathering.
+
+#### Inputs
+- `Source In` (Video) - Video source ID
+
+#### Outputs
+- `RGBA Video` (Video) - Processed video with alpha transparency
+- `Mask` (Video) - Black and white binary mask (White = Opaque, Black = Transparent)
+
+#### Parameters
+- `Add Color...` (Button) - Click to pick a color from the video preview
+- `Spill Support` (0.0-1.0) - Tint reduction for green/blue spill on edges
+- `Feather` (0.0-20.0) - Softness of the mask edges
+- `Zoom` (+/-) - Adjust preview size: Small (240px), Normal (480px)
+
+#### How to Use
+1. **Connect Video Source:** Connect Webcam or Video File Loader's `Source ID` to `Source In`
+2. **Pick Background Color:** Click "Add Color..." and click on the green/blue screen background in the preview
+3. **Refine Mask:** Add more color samples if lighting is uneven
+4. **Feather Edges:** Increase Feather amount to soften the transition
+5. **Remove Spill:** Increase Spill Suppression if you see green/blue halos on the subject
+6. **Use Outputs:**
+   - Connect `RGBA Video` to `Video Compositor` to layer over other backgrounds
+   - Connect `Mask` to `Video Compositor` or other effects for luma keying
+
+**Technical Details:**
+- GPU-accelerated when available (CUDA)
+- Supports multiple background colors
+- Median sampling for robust color selection
+- Real-time processing
 
 ---
 

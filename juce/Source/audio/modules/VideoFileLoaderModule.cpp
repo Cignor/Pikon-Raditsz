@@ -628,6 +628,10 @@ void VideoFileLoaderModule::run()
 
                 // Read and display the single, correct frame for this point in time.
                 cv::Mat frame;
+
+                // Measure decode time
+                double startTime = juce::Time::getMillisecondCounterHiRes();
+
                 if (videoCapture.read(frame))
                 {
                     if (myLogicalId != 0)
@@ -637,6 +641,10 @@ void VideoFileLoaderModule::run()
                     if (lastFourcc.load() == 0)
                         lastFourcc.store((int)videoCapture.get(cv::CAP_PROP_FOURCC));
                 }
+
+                double elapsed = juce::Time::getMillisecondCounterHiRes() - startTime;
+                lastProcessTimeMs = (float)elapsed;
+                lastProcessWasGpu = false; // CPU decode (FFMPEG)
             }
         }
 
@@ -1349,6 +1357,7 @@ void VideoFileLoaderModule::drawParametersInNode(
     }
 
     ImGui::PopItemWidth();
+    drawPerformanceMetrics(itemWidth);
 }
 
 // === TIMELINE REPORTING INTERFACE IMPLEMENTATION ===
