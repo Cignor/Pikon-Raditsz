@@ -138,7 +138,7 @@ void RateModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 }
 
 #if defined(PRESET_CREATOR_UI)
-void RateModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void RateModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();

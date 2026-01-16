@@ -52,7 +52,7 @@ public:
 
 #if defined(PRESET_CREATOR_UI)
     // --- UI Drawing and Pin Definitions ---
-    void drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded) override;
+    void drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override;
     void drawIoPins(const NodePinHelpers& helpers) override;
 
     juce::String getAudioInputLabel(int channel) const override;

@@ -238,8 +238,10 @@ void NoiseModuleProcessor::forceStop()
 #if defined(PRESET_CREATOR_UI)
 // --- UI Drawing Logic ---
 
-void NoiseModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void NoiseModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
     ImGui::PushItemWidth(itemWidth);
@@ -256,6 +258,13 @@ void NoiseModuleProcessor::drawParametersInNode(float itemWidth, const std::func
 
     // === SECTION: Noise Type ===
     ThemeText("NOISE TYPE", theme.text.section_header);
+
+    // Inline pin for Colour Mod (Channel 1)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(1))
+            ImGui::SameLine();
+    }
 
     if (colourIsModulated) ImGui::BeginDisabled();
     if (ImGui::Combo("Colour", &colourIndex, "White\0Pink\0Brown\0\0"))
@@ -286,6 +295,13 @@ void NoiseModuleProcessor::drawParametersInNode(float itemWidth, const std::func
     // === SECTION: Rate ===
     ThemeText("RATE", theme.text.section_header);
 
+    // Inline pin for Rate Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+
     if (rateIsModulated) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Rate", &rateHz, minRateHz, maxRateHz, "%.2f Hz", ImGuiSliderFlags_Logarithmic))
     {
@@ -301,6 +317,13 @@ void NoiseModuleProcessor::drawParametersInNode(float itemWidth, const std::func
 
     // === SECTION: Output Level ===
     ThemeText("OUTPUT LEVEL", theme.text.section_header);
+
+    // Inline pin for Level Mod (Channel 0)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0))
+            ImGui::SameLine();
+    }
 
     if (levelIsModulated) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Level", &levelDb, -60.0f, 6.0f, "%.1f dB"))
@@ -435,14 +458,13 @@ void NoiseModuleProcessor::drawParametersInNode(float itemWidth, const std::func
     ImGui::Text("%.2f Hz", vizRateHz);
 
     ImGui::PopItemWidth();
+    ImGui::PopID();  // End unique ID
 }
 
 void NoiseModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    helpers.drawParallelPins("Level Mod", 0, nullptr, -1);
-    helpers.drawParallelPins("Colour Mod", 1, nullptr, -1);
-    helpers.drawParallelPins("Rate Mod", 2, nullptr, -1);
-    helpers.drawParallelPins(nullptr, -1, "Out", 0);
+    // All modulation inputs (channels 0-2) are now inline, only draw output
+    helpers.drawAudioOutputPin("Out", 0);
 }
 
 // --- Pin Label and Routing Definitions ---

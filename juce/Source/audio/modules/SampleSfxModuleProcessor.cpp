@@ -10,18 +10,28 @@
 #endif
 
 SampleSfxModuleProcessor::SampleSfxModuleProcessor()
-    : ModuleProcessor(BusesProperties()
-        .withInput("Pitch Var Mod", juce::AudioChannelSet::discreteChannels(1), true)  // Bus 0: Pitch Variation Mod (flat ch 0)
-        .withInput("Control Mods", juce::AudioChannelSet::discreteChannels(2), true)   // Bus 1: Gate Mod, Trigger (flat ch 1-2)
-        .withInput("Range Mods", juce::AudioChannelSet::discreteChannels(2), true)     // Bus 2: Range Start, Range End (flat ch 3-4)
-        .withOutput("Audio Output", juce::AudioChannelSet::stereo(), true)),
+    : ModuleProcessor(
+          BusesProperties()
+              .withInput(
+                  "Pitch Var Mod",
+                  juce::AudioChannelSet::discreteChannels(1),
+                  true) // Bus 0: Pitch Variation Mod (flat ch 0)
+              .withInput(
+                  "Control Mods",
+                  juce::AudioChannelSet::discreteChannels(2),
+                  true) // Bus 1: Gate Mod, Trigger (flat ch 1-2)
+              .withInput(
+                  "Range Mods",
+                  juce::AudioChannelSet::discreteChannels(2),
+                  true) // Bus 2: Range Start, Range End (flat ch 3-4)
+              .withOutput("Audio Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "SampleSfxParameters", createParameterLayout())
 {
     // Initialize output value tracking for cable inspector (stereo)
     lastOutputValues.clear();
     lastOutputValues.push_back(std::make_unique<std::atomic<float>>(0.0f));
     lastOutputValues.push_back(std::make_unique<std::atomic<float>>(0.0f));
-    
+
     // Initialize parameter pointers
     pitchVariationParam = apvts.getRawParameterValue("pitchVariation");
     pitchVariationModParam = apvts.getRawParameterValue("pitchVariation_mod");
@@ -32,7 +42,7 @@ SampleSfxModuleProcessor::SampleSfxModuleProcessor()
     rangeEndParam = apvts.getRawParameterValue("rangeEnd");
     rangeStartModParam = apvts.getRawParameterValue("rangeStart_mod");
     rangeEndModParam = apvts.getRawParameterValue("rangeEnd_mod");
-    
+
 #if defined(PRESET_CREATOR_UI)
     // Initialize visualization data
     for (auto& v : vizData.waveformPreview)
@@ -40,54 +50,66 @@ SampleSfxModuleProcessor::SampleSfxModuleProcessor()
 #endif
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout SampleSfxModuleProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout SampleSfxModuleProcessor::
+    createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> parameters;
-    
+
     // --- Selection Mode ---
-    parameters.push_back(std::make_unique<juce::AudioParameterChoice>(
-        "selectionMode", "Selection Mode", juce::StringArray { "Sequential", "Random", "Off" }, 0));
-    
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            "selectionMode",
+            "Selection Mode",
+            juce::StringArray{"Sequential", "Random", "Off"},
+            0));
+
     // --- Pitch Variation (small range: ±2 semitones) ---
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "pitchVariation", "Pitch Variation", -2.0f, 2.0f, 0.0f));
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "pitchVariation_mod", "Pitch Variation Mod", -2.0f, 2.0f, 0.0f));
-    
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "pitchVariation", "Pitch Variation", -2.0f, 2.0f, 0.0f));
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "pitchVariation_mod", "Pitch Variation Mod", -2.0f, 2.0f, 0.0f));
+
     // --- Gate ---
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "gate", "Gate", 0.0f, 1.0f, 0.8f));
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "gate_mod", "Gate Mod", 0.0f, 1.0f, 1.0f));
-    
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>("gate", "Gate", 0.0f, 1.0f, 0.8f));
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>("gate_mod", "Gate Mod", 0.0f, 1.0f, 1.0f));
+
     // --- Range Control ---
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "rangeStart", "Range Start", 
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "rangeEnd", "Range End", 
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "rangeStart_mod", "Range Start Mod", 0.0f, 1.0f, 0.0f));
-    parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "rangeEnd_mod", "Range End Mod", 0.0f, 1.0f, 1.0f));
-    
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "rangeStart", "Range Start", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "rangeEnd", "Range End", juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "rangeStart_mod", "Range Start Mod", 0.0f, 1.0f, 0.0f));
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "rangeEnd_mod", "Range End Mod", 0.0f, 1.0f, 1.0f));
+
     // --- Engine (for SampleVoiceProcessor) ---
-    parameters.push_back(std::make_unique<juce::AudioParameterChoice>(
-        "engine", "Engine", juce::StringArray { "RubberBand", "Naive" }, 1));
-    parameters.push_back(std::make_unique<juce::AudioParameterBool>(
-        "rbWindowShort", "RB Window Short", true));
-    parameters.push_back(std::make_unique<juce::AudioParameterBool>(
-        "rbPhaseInd", "RB Phase Independent", true));
-    
-    return { parameters.begin(), parameters.end() };
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            "engine", "Engine", juce::StringArray{"RubberBand", "Naive"}, 1));
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterBool>("rbWindowShort", "RB Window Short", true));
+    parameters.push_back(
+        std::make_unique<juce::AudioParameterBool>("rbPhaseInd", "RB Phase Independent", true));
+
+    return {parameters.begin(), parameters.end()};
 }
 
 void SampleSfxModuleProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     juce::ignoreUnused(sampleRate, samplesPerBlock);
-    juce::Logger::writeToLog("[Sample SFX] prepareToPlay sr=" + juce::String(sampleRate) + ", block=" + juce::String(samplesPerBlock));
-    
+    juce::Logger::writeToLog(
+        "[Sample SFX] prepareToPlay sr=" + juce::String(sampleRate) +
+        ", block=" + juce::String(samplesPerBlock));
+
     // Force enable all input buses
     for (int i = 0; i < getBusCount(true); ++i)
     {
@@ -100,7 +122,7 @@ void SampleSfxModuleProcessor::prepareToPlay(double sampleRate, int samplesPerBl
             }
         }
     }
-    
+
     // Auto-load folder from saved state if available
     if (currentFolderPath.isEmpty())
     {
@@ -114,7 +136,7 @@ void SampleSfxModuleProcessor::prepareToPlay(double sampleRate, int samplesPerBl
             }
         }
     }
-    
+
     // Create sample processor if we have a sample loaded
     if (currentSample != nullptr)
     {
@@ -145,21 +167,22 @@ void SampleSfxModuleProcessor::releaseResources()
     resumeAfterPrepare.store(true);
 }
 
-void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void SampleSfxModuleProcessor::processBlock(
+    juce::AudioBuffer<float>& buffer,
+    juce::MidiBuffer&         midiMessages)
 {
     // Get OUTPUT bus
     auto outBus = getBusBuffer(buffer, false, 0);
-    
+
     // --- Setup and Safety Checks ---
-    auto refreshCurrentProcessor = [&]() -> SampleVoiceProcessor*
-    {
+    auto refreshCurrentProcessor = [&]() -> SampleVoiceProcessor* {
         if (auto* pending = newSampleProcessor.exchange(nullptr))
         {
             const juce::ScopedLock lock(processorSwapLock);
             processorToDelete = std::move(sampleProcessor);
             sampleProcessor.reset(pending);
         }
-        
+
         SampleVoiceProcessor* refreshed = nullptr;
         {
             const juce::ScopedLock lock(processorSwapLock);
@@ -167,7 +190,7 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         }
         return refreshed;
     };
-    
+
     SampleVoiceProcessor* currentProcessor = refreshCurrentProcessor();
     if (currentProcessor == nullptr || currentSample == nullptr)
     {
@@ -181,7 +204,8 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         if (currentSample && currentSample->stereo.getNumSamples() > 0)
         {
             const double totalSamples = (double)currentSample->stereo.getNumSamples();
-            const double clampedSample = juce::jlimit(0.0, totalSamples, (double)resumeNorm * totalSamples);
+            const double clampedSample =
+                juce::jlimit(0.0, totalSamples, (double)resumeNorm * totalSamples);
             currentProcessor->setCurrentPosition(clampedSample);
             updateCachedPosition(clampedSample, totalSamples);
             if (resumeShouldPlay.exchange(false))
@@ -192,31 +216,31 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             pendingResumeNormalized.store(resumeNorm);
         }
     }
-    
+
     // Multi-bus input architecture
-    auto pitchVarBus = getBusBuffer(buffer, true, 0);   // Bus 0: Pitch Variation Mod (flat ch 0)
-    auto controlBus = getBusBuffer(buffer, true, 1);    // Bus 1: Gate Mod, Trigger (flat ch 1-2)
-    auto rangeBus = getBusBuffer(buffer, true, 2);     // Bus 2: Range Start, Range End (flat ch 3-4)
-    
+    auto pitchVarBus = getBusBuffer(buffer, true, 0); // Bus 0: Pitch Variation Mod (flat ch 0)
+    auto controlBus = getBusBuffer(buffer, true, 1);  // Bus 1: Gate Mod, Trigger (flat ch 1-2)
+    auto rangeBus = getBusBuffer(buffer, true, 2);    // Bus 2: Range Start, Range End (flat ch 3-4)
+
     const int numSamples = buffer.getNumSamples();
-    
+
     // --- Calculate Range Values ---
     float startNorm = rangeStartParam ? rangeStartParam->load() : 0.0f;
     float endNorm = rangeEndParam ? rangeEndParam->load() : 1.0f;
-    
+
     // Apply range modulation if connected
     if (isParamInputConnected("rangeStart_mod") && rangeBus.getNumChannels() > 0)
     {
         const float cv = juce::jlimit(0.0f, 1.0f, rangeBus.getReadPointer(0)[0]);
         startNorm = cv;
     }
-    
+
     if (isParamInputConnected("rangeEnd_mod") && rangeBus.getNumChannels() > 1)
     {
         const float cv = juce::jlimit(0.0f, 1.0f, rangeBus.getReadPointer(1)[0]);
         endNorm = cv;
     }
-    
+
     // Ensure valid range window
     {
         const float minGap = 0.001f;
@@ -224,18 +248,18 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         {
             const float midpoint = (startNorm + endNorm) * 0.5f;
             startNorm = juce::jlimit(0.0f, 1.0f - minGap, midpoint - minGap * 0.5f);
-            endNorm   = juce::jlimit(minGap, 1.0f, startNorm + minGap);
+            endNorm = juce::jlimit(minGap, 1.0f, startNorm + minGap);
         }
     }
-    
+
     // Update live telemetry
     setLiveParamValue("rangeStart_live", startNorm);
     setLiveParamValue("rangeEnd_live", endNorm);
-    
+
     // --- Trigger Detection ---
     if (isParamInputConnected("trigger_mod") && controlBus.getNumChannels() > 1)
     {
-        const float* trigSignal = controlBus.getReadPointer(1);  // Control Bus Channel 1 = Trigger
+        const float* trigSignal = controlBus.getReadPointer(1); // Control Bus Channel 1 = Trigger
         for (int i = 0; i < numSamples; ++i)
         {
             const bool trigHigh = trigSignal[i] > 0.5f;
@@ -260,9 +284,10 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             }
             lastTriggerHigh = trigHigh;
         }
-        if (numSamples > 0) lastTriggerHigh = (controlBus.getReadPointer(1)[numSamples - 1] > 0.5f);
+        if (numSamples > 0)
+            lastTriggerHigh = (controlBus.getReadPointer(1)[numSamples - 1] > 0.5f);
     }
-    
+
     // --- Compute pitch variation (for telemetry and audio) ---
     // Calculate even when not playing so UI shows live values
     float pitchVar = pitchVariationParam ? pitchVariationParam->load() : 0.0f;
@@ -274,56 +299,70 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         pitchVar += cvPitch;
     }
     pitchVar = juce::jlimit(-2.0f, 2.0f, pitchVar);
-    
+
     // Update live telemetry for UI (regardless of play state)
     setLiveParamValue("pitchVariation_live", pitchVar);
-    
+
+    // --- Compute gate value (for telemetry and audio) ---
+    // Calculate even when not playing so UI shows live values
+    float        gateValue = gateParam ? gateParam->load() : 0.8f;
+    const bool   isGateMod = isParamInputConnected("gate_mod") && controlBus.getNumChannels() > 0;
+    const float* gateCV = isGateMod ? controlBus.getReadPointer(0) : nullptr;
+    if (isGateMod && gateCV)
+    {
+        // Use first sample of CV for telemetry display
+        gateValue = juce::jlimit(0.0f, 1.0f, gateCV[0]);
+    }
+    // Update live telemetry for UI (regardless of play state)
+    setLiveParamValue("gate_live", gateValue);
+
     // --- Audio Rendering ---
     if (currentProcessor->isPlaying)
     {
         // Apply pitch variation to audio engine
         currentProcessor->setBasePitchSemitones(pitchVar);
-        
+
         // Apply playback range
         const int sourceLength = currentSample->stereo.getNumSamples();
         currentProcessor->setPlaybackRange(startNorm * sourceLength, endNorm * sourceLength);
-        
+
         // Set engine parameters
         const int engineIdx = (int)apvts.getRawParameterValue("engine")->load();
-        currentProcessor->setEngine(engineIdx == 0 ? SampleVoiceProcessor::Engine::RubberBand : SampleVoiceProcessor::Engine::Naive);
+        currentProcessor->setEngine(
+            engineIdx == 0 ? SampleVoiceProcessor::Engine::RubberBand
+                           : SampleVoiceProcessor::Engine::Naive);
         currentProcessor->setRubberBandOptions(
             apvts.getRawParameterValue("rbWindowShort")->load() > 0.5f,
-            apvts.getRawParameterValue("rbPhaseInd")->load() > 0.5f
-        );
+            apvts.getRawParameterValue("rbPhaseInd")->load() > 0.5f);
         currentProcessor->setLooping(false); // SFX mode: play once, then switch
-        
+
         // Track playing state before rendering
         const bool wasPlayingBeforeRender = currentProcessor->isPlaying;
-        
+
         // Generate audio
-        try {
-            juce::AudioBuffer<float> outputBuffer(outBus.getArrayOfWritePointers(), 
-                                                   outBus.getNumChannels(), 
-                                                   outBus.getNumSamples());
+        try
+        {
+            juce::AudioBuffer<float> outputBuffer(
+                outBus.getArrayOfWritePointers(), outBus.getNumChannels(), outBus.getNumSamples());
             currentProcessor->renderBlock(outputBuffer, midiMessages);
-        } catch (...) {
+        }
+        catch (...)
+        {
             RtLogger::postf("[Sample SFX][FATAL] renderBlock exception");
             outBus.clear();
         }
-        
+
         // Check if sample finished during this block (isPlaying became false during renderBlock)
         const bool sampleFinished = wasPlayingBeforeRender && !currentProcessor->isPlaying;
-        
+
         if (sampleFinished)
         {
             sampleEndDetected = true;
         }
-        
-        // --- Gate Application ---
-        const float baseGate = gateParam ? gateParam->load() : 0.8f;
-        if (isParamInputConnected("gate_mod") && controlBus.getNumChannels() > 0)
+
+        // --- Gate Application to Audio ---
+        if (isGateMod && gateCV)
         {
-            const float* gateCV = controlBus.getReadPointer(0);  // Control Bus Channel 0 = Gate
             for (int ch = 0; ch < outBus.getNumChannels(); ++ch)
             {
                 float* channelData = outBus.getWritePointer(ch);
@@ -334,17 +373,19 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
                 }
             }
         }
-        
-        // Apply main gate knob
-        outBus.applyGain(baseGate);
-        
+        else
+        {
+            // Apply main gate knob (only when not CV modulated)
+            outBus.applyGain(gateValue);
+        }
+
         // Note: Trigger queue processing is handled above when sampleFinished is detected
     }
     else
     {
         // Not playing: clear output
         outBus.clear();
-        
+
         // Reset flag when playback stops (allows next trigger to work)
         if (sampleEndDetected)
         {
@@ -352,24 +393,28 @@ void SampleSfxModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             queueNextSample(); // preload the upcoming sample after playback finishes
         }
     }
-    
+
     // Update output values for cable inspector using block peak
     if (lastOutputValues.size() >= 2)
     {
-        auto peakAbs = [&](int ch){ 
-            if (ch >= outBus.getNumChannels()) return 0.0f; 
-            const float* p = outBus.getReadPointer(ch); 
-            float m = 0.0f; 
-            for (int i = 0; i < outBus.getNumSamples(); ++i) 
-                m = juce::jmax(m, std::abs(p[i])); 
-            return m; 
+        auto peakAbs = [&](int ch) {
+            if (ch >= outBus.getNumChannels())
+                return 0.0f;
+            const float* p = outBus.getReadPointer(ch);
+            float        m = 0.0f;
+            for (int i = 0; i < outBus.getNumSamples(); ++i)
+                m = juce::jmax(m, std::abs(p[i]));
+            return m;
         };
-        if (lastOutputValues[0]) lastOutputValues[0]->store(peakAbs(0));
-        if (lastOutputValues[1]) lastOutputValues[1]->store(peakAbs(1));
+        if (lastOutputValues[0])
+            lastOutputValues[0]->store(peakAbs(0));
+        if (lastOutputValues[1])
+            lastOutputValues[1]->store(peakAbs(1));
     }
 
     if (currentSample)
-        updateCachedPosition(currentProcessor->getCurrentPosition(), (double)currentSample->stereo.getNumSamples());
+        updateCachedPosition(
+            currentProcessor->getCurrentPosition(), (double)currentSample->stereo.getNumSamples());
     moduleIsPlaying.store(currentProcessor->isPlaying);
 }
 
@@ -381,10 +426,7 @@ void SampleSfxModuleProcessor::reset()
     }
 }
 
-void SampleSfxModuleProcessor::forceStop()
-{
-    handleStopRequest();
-}
+void SampleSfxModuleProcessor::forceStop() { handleStopRequest(); }
 
 void SampleSfxModuleProcessor::updateCachedPosition(double samplePos, double totalSamples)
 {
@@ -434,7 +476,7 @@ void SampleSfxModuleProcessor::handleStopRequest()
     }
 
     std::shared_ptr<SampleBank::Sample> safeSample;
-    double totalSamples = 0.0;
+    double                              totalSamples = 0.0;
     {
         const juce::ScopedLock lock(processorSwapLock);
         safeSample = currentSample;
@@ -442,12 +484,15 @@ void SampleSfxModuleProcessor::handleStopRequest()
             sampleProcessor->isPlaying = false;
         if (safeSample)
             totalSamples = (double)safeSample->stereo.getNumSamples();
-        const float startNorm = rangeStartParam ? rangeStartParam->load() : 0.0f;
-        const double startSample = totalSamples > 0.0 ? juce::jlimit(0.0, totalSamples, (double)startNorm * totalSamples) : 0.0;
+        const float  startNorm = rangeStartParam ? rangeStartParam->load() : 0.0f;
+        const double startSample =
+            totalSamples > 0.0 ? juce::jlimit(0.0, totalSamples, (double)startNorm * totalSamples)
+                               : 0.0;
         if (sampleProcessor && totalSamples > 0.0)
             sampleProcessor->setCurrentPosition(startSample);
         lastKnownSamplePosition.store(startSample);
-        lastKnownNormalizedPosition.store(totalSamples > 0.0 ? (float)juce::jlimit(0.0, 1.0, startSample / totalSamples) : 0.0f);
+        lastKnownNormalizedPosition.store(
+            totalSamples > 0.0 ? (float)juce::jlimit(0.0, 1.0, startSample / totalSamples) : 0.0f);
     }
 
     pendingResumeNormalized.store(-1.0f);
@@ -474,25 +519,25 @@ void SampleSfxModuleProcessor::setSampleFolder(const juce::File& folder)
         juce::Logger::writeToLog("[Sample SFX] Invalid folder: " + folder.getFullPathName());
         return;
     }
-    
+
     bool loadedFirstSample = false;
-    
+
     {
         const juce::ScopedLock lock(folderLock);
-        
+
         currentFolderPath = folder.getFullPathName();
-        
+
         // Scan folder for audio files
         folderSamples.clear();
-        folder.findChildFiles(folderSamples, juce::File::findFiles, false, 
-                             "*.wav;*.mp3;*.flac;*.aiff;*.ogg");
-        
+        folder.findChildFiles(
+            folderSamples, juce::File::findFiles, false, "*.wav;*.mp3;*.flac;*.aiff;*.ogg");
+
         // Sort alphabetically for sequential mode
         folderSamples.sort();
-        
+
         // Reset index
         currentSampleIndex = 0;
-        
+
         // Load first sample if available
         if (folderSamples.size() > 0)
         {
@@ -501,13 +546,14 @@ void SampleSfxModuleProcessor::setSampleFolder(const juce::File& folder)
         }
         else
         {
-            juce::Logger::writeToLog("[Sample SFX] No audio files found in folder: " + currentFolderPath);
+            juce::Logger::writeToLog(
+                "[Sample SFX] No audio files found in folder: " + currentFolderPath);
         }
-        
+
         // Save to APVTS state
         apvts.state.setProperty("folderPath", currentFolderPath, nullptr);
     }
-    
+
     if (loadedFirstSample)
     {
         queueNextSample(); // Pre-select the next sample for the first trigger
@@ -527,42 +573,47 @@ void SampleSfxModuleProcessor::loadSample(const juce::File& file)
         juce::Logger::writeToLog("[Sample SFX] File does not exist: " + file.getFullPathName());
         return;
     }
-    
+
     // Clear any pending queue entries referencing old samples
     {
         const juce::ScopedLock lock(queueLock);
         triggerQueue.clear();
     }
-    
+
     // Load the original shared sample from the bank
-    SampleBank sampleBank;
+    SampleBank                          sampleBank;
     std::shared_ptr<SampleBank::Sample> original;
-    try {
+    try
+    {
         original = sampleBank.getOrLoad(file);
-    } catch (...) {
+    }
+    catch (...)
+    {
         juce::Logger::writeToLog("[Sample SFX][FATAL] Exception in SampleBank::getOrLoad");
         return;
     }
-    
+
     if (original == nullptr || original->stereo.getNumSamples() <= 0)
     {
-        juce::Logger::writeToLog("[Sample SFX] Failed to load sample or empty: " + file.getFullPathName());
+        juce::Logger::writeToLog(
+            "[Sample SFX] Failed to load sample or empty: " + file.getFullPathName());
         return;
     }
-    
+
     currentSampleName = file.getFileName();
     currentSamplePath = file.getFullPathName();
-    
+
     // Store sample metadata
     sampleDurationSeconds = (double)original->stereo.getNumSamples() / original->sampleRate;
     sampleSampleRate = (int)original->sampleRate;
-    
+
     // Create a private stereo copy (preserve stereo or duplicate mono)
     const int numSamples = original->stereo.getNumSamples();
-    auto privateCopy = std::make_shared<SampleBank::Sample>();
+    auto      privateCopy = std::make_shared<SampleBank::Sample>();
     privateCopy->sampleRate = original->sampleRate;
-    
-    try {
+
+    try
+    {
         privateCopy->stereo.setSize(2, numSamples); // Always stereo output
         if (original->stereo.getNumChannels() <= 1)
         {
@@ -576,22 +627,24 @@ void SampleSfxModuleProcessor::loadSample(const juce::File& file)
             privateCopy->stereo.copyFrom(0, 0, original->stereo, 0, 0, numSamples);
             privateCopy->stereo.copyFrom(1, 0, original->stereo, 1, 0, numSamples);
         }
-    } catch (...) {
+    }
+    catch (...)
+    {
         juce::Logger::writeToLog("[Sample SFX][FATAL] Exception copying audio data");
         return;
     }
-    
+
     // Atomically assign our private copy
     {
         const juce::ScopedLock lock(processorSwapLock);
         currentSample = privateCopy;
     }
-    
+
 #if defined(PRESET_CREATOR_UI)
     // Generate waveform preview for visualization
     generateWaveformPreview();
 #endif
-    
+
     // If the module is prepared, stage a new processor
     if (getSampleRate() > 0.0 && getBlockSize() > 0)
     {
@@ -605,13 +658,13 @@ void SampleSfxModuleProcessor::queueNextSample()
 
     {
         const juce::ScopedLock lock(folderLock);
-        
+
         if (folderSamples.isEmpty())
             return;
-        
+
         const int mode = selectionModeParam ? ((int)selectionModeParam->load()) : 0;
         nextIndex = currentSampleIndex;
-        
+
         if (mode == 0)
         {
             // Sequential: wrap around
@@ -623,7 +676,8 @@ void SampleSfxModuleProcessor::queueNextSample()
             juce::Random rng(juce::Time::getMillisecondCounterHiRes());
             if (folderSamples.size() > 1)
             {
-                do {
+                do
+                {
                     nextIndex = rng.nextInt(folderSamples.size());
                 } while (nextIndex == currentSampleIndex && folderSamples.size() > 2);
             }
@@ -637,7 +691,7 @@ void SampleSfxModuleProcessor::queueNextSample()
 
     if (nextIndex < 0)
         return;
-    
+
     // Queue the next sample index (thread-safe, keep only one entry)
     {
         const juce::ScopedLock queueLockGuard(queueLock);
@@ -649,16 +703,16 @@ void SampleSfxModuleProcessor::queueNextSample()
 void SampleSfxModuleProcessor::processTriggerQueue()
 {
     int sampleIndexToPlay = -1;
-    
+
     // Get next sample from queue (thread-safe)
     {
         const juce::ScopedLock lock(queueLock);
         if (triggerQueue.isEmpty())
             return;
-        
+
         sampleIndexToPlay = triggerQueue.removeAndReturn(0); // Remove first item
     }
-    
+
     // Resolve file to load outside queue lock
     juce::File sampleToLoad;
     {
@@ -688,45 +742,42 @@ void SampleSfxModuleProcessor::switchToNextSample()
 void SampleSfxModuleProcessor::createSampleProcessor()
 {
     const juce::ScopedLock lock(processorSwapLock);
-    
+
     if (currentSample == nullptr)
     {
         return;
     }
-    
+
     // Guard against double-creation and race with audio thread
     auto newProcessor = std::make_unique<SampleVoiceProcessor>(currentSample);
-    
+
     // Set up the sample processor
     const double sr = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
-    const int bs = getBlockSize() > 0 ? getBlockSize() : 512;
+    const int    bs = getBlockSize() > 0 ? getBlockSize() : 512;
     newProcessor->prepareToPlay(sr, bs);
-    
+
     // Set playback range from parameters (defaults to full sample)
-    const int sourceLength = currentSample->stereo.getNumSamples();
+    const int   sourceLength = currentSample->stereo.getNumSamples();
     const float startNorm = rangeStartParam ? rangeStartParam->load() : 0.0f;
     const float endNorm = rangeEndParam ? rangeEndParam->load() : 1.0f;
     newProcessor->setPlaybackRange(startNorm * sourceLength, endNorm * sourceLength);
-    
+
     // Reset position without starting playback - wait for trigger
     newProcessor->resetPosition();
     lastKnownSamplePosition.store(startNorm * sourceLength);
     lastKnownNormalizedPosition.store(startNorm);
     pendingResumeNormalized.store(-1.0f);
     isStopped.store(true);
-    
+
     // Set parameters from our APVTS
     newProcessor->setZoneTimeStretchRatio(1.0f); // No time stretch for SFX
     newProcessor->setBasePitchSemitones(pitchVariationParam ? pitchVariationParam->load() : 0.0f);
-    
+
     newSampleProcessor.store(newProcessor.release());
     juce::Logger::writeToLog("[Sample SFX] Staged new sample processor for: " + currentSampleName);
 }
 
-juce::String SampleSfxModuleProcessor::getCurrentSampleName() const
-{
-    return currentSampleName;
-}
+juce::String SampleSfxModuleProcessor::getCurrentSampleName() const { return currentSampleName; }
 
 bool SampleSfxModuleProcessor::hasSampleLoaded() const
 {
@@ -740,7 +791,7 @@ juce::File SampleSfxModuleProcessor::getLastFolder() const
     {
         return juce::File(currentFolderPath);
     }
-    
+
     // Try to find a default samples folder
     auto appFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
     auto dir = appFile.getParentDirectory();
@@ -751,7 +802,7 @@ juce::File SampleSfxModuleProcessor::getLastFolder() const
             return candidate;
         dir = dir.getParentDirectory();
     }
-    
+
     return juce::File();
 }
 
@@ -784,12 +835,15 @@ void SampleSfxModuleProcessor::getStateInformation(juce::MemoryBlock& destData)
     vt.setProperty("folderPath", currentFolderPath, nullptr);
     vt.setProperty("currentIndex", currentSampleIndex, nullptr);
     vt.setProperty("gate", gateParam ? gateParam->load() : 0.8f, nullptr);
-    vt.setProperty("pitchVariation", pitchVariationParam ? pitchVariationParam->load() : 0.0f, nullptr);
-    vt.setProperty("selectionMode", selectionModeParam ? (int)selectionModeParam->load() : 0, nullptr);
+    vt.setProperty(
+        "pitchVariation", pitchVariationParam ? pitchVariationParam->load() : 0.0f, nullptr);
+    vt.setProperty(
+        "selectionMode", selectionModeParam ? (int)selectionModeParam->load() : 0, nullptr);
     vt.setProperty("engine", (int)apvts.getRawParameterValue("engine")->load(), nullptr);
-    vt.setProperty("rbWindowShort", apvts.getRawParameterValue("rbWindowShort")->load() > 0.5f, nullptr);
+    vt.setProperty(
+        "rbWindowShort", apvts.getRawParameterValue("rbWindowShort")->load() > 0.5f, nullptr);
     vt.setProperty("rbPhaseInd", apvts.getRawParameterValue("rbPhaseInd")->load() > 0.5f, nullptr);
-    
+
     if (auto xml = vt.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -797,11 +851,13 @@ void SampleSfxModuleProcessor::getStateInformation(juce::MemoryBlock& destData)
 void SampleSfxModuleProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
-    if (!xml) return;
-    
+    if (!xml)
+        return;
+
     juce::ValueTree vt = juce::ValueTree::fromXml(*xml);
-    if (!vt.isValid()) return;
-    
+    if (!vt.isValid())
+        return;
+
     // Restore folder path
     currentFolderPath = vt.getProperty("folderPath").toString();
     if (currentFolderPath.isNotEmpty())
@@ -820,12 +876,14 @@ void SampleSfxModuleProcessor::setStateInformation(const void* data, int sizeInB
             }
         }
     }
-    
+
     // Restore parameters
     if (auto* p = apvts.getParameter("gate"))
-        p->setValueNotifyingHost(apvts.getParameterRange("gate").convertTo0to1((float)vt.getProperty("gate", 0.8f)));
+        p->setValueNotifyingHost(
+            apvts.getParameterRange("gate").convertTo0to1((float)vt.getProperty("gate", 0.8f)));
     if (auto* p = apvts.getParameter("pitchVariation"))
-        p->setValueNotifyingHost(apvts.getParameterRange("pitchVariation").convertTo0to1((float)vt.getProperty("pitchVariation", 0.0f)));
+        p->setValueNotifyingHost(apvts.getParameterRange("pitchVariation")
+                                     .convertTo0to1((float)vt.getProperty("pitchVariation", 0.0f)));
     if (auto* p = apvts.getParameter("selectionMode"))
         p->setValueNotifyingHost((float)(int)vt.getProperty("selectionMode", 0));
     if (auto* p = apvts.getParameter("engine"))
@@ -867,67 +925,106 @@ void SampleSfxModuleProcessor::setExtraStateTree(const juce::ValueTree& tree)
     }
 }
 
-bool SampleSfxModuleProcessor::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const
+bool SampleSfxModuleProcessor::getParamRouting(
+    const juce::String& paramId,
+    int&                outBusIndex,
+    int&                outChannelIndexInBus) const
 {
     // Bus 0: Pitch Variation Mod - flat channel 0
-    if (paramId == "pitchVariation_mod") { outBusIndex = 0; outChannelIndexInBus = 0; return true; }
-    
+    if (paramId == "pitchVariation_mod")
+    {
+        outBusIndex = 0;
+        outChannelIndexInBus = 0;
+        return true;
+    }
+
     // Bus 1: Control Mods - flat channels 1-2
-    if (paramId == "gate_mod") { outBusIndex = 1; outChannelIndexInBus = 0; return true; }
-    if (paramId == "trigger_mod") { outBusIndex = 1; outChannelIndexInBus = 1; return true; }
-    
+    if (paramId == "gate_mod")
+    {
+        outBusIndex = 1;
+        outChannelIndexInBus = 0;
+        return true;
+    }
+    if (paramId == "trigger_mod")
+    {
+        outBusIndex = 1;
+        outChannelIndexInBus = 1;
+        return true;
+    }
+
     // Bus 2: Range Mods - flat channels 3-4
-    if (paramId == "rangeStart_mod") { outBusIndex = 2; outChannelIndexInBus = 0; return true; }
-    if (paramId == "rangeEnd_mod") { outBusIndex = 2; outChannelIndexInBus = 1; return true; }
-    
+    if (paramId == "rangeStart_mod")
+    {
+        outBusIndex = 2;
+        outChannelIndexInBus = 0;
+        return true;
+    }
+    if (paramId == "rangeEnd_mod")
+    {
+        outBusIndex = 2;
+        outChannelIndexInBus = 1;
+        return true;
+    }
+
     return false;
 }
 
 #if defined(PRESET_CREATOR_UI)
-void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void SampleSfxModuleProcessor::drawParametersInNode(
+    float                                                   itemWidth,
+    const std::function<bool(const juce::String& paramId)>& isParamModulated,
+    const std::function<void()>&                            onModificationEnded,
+    const NodePinHelpers*                                   pinHelpers)
 {
     // Protect global ID space (prevents conflicts when multiple instances exist)
     ImGui::PushID(this);
-    
+
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     ImGui::PushItemWidth(itemWidth);
-    
+
     // Folder selection button
     if (ImGui::Button("Select Folder", ImVec2(itemWidth * 0.48f, 0)))
     {
         juce::File startDir = getLastFolder();
-        if (!startDir.exists()) startDir = juce::File();
+        if (!startDir.exists())
+            startDir = juce::File();
         folderChooser = std::make_unique<juce::FileChooser>("Select Sample Folder", startDir, "*");
-        auto chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
-        folderChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
-        {
-            try {
+        auto chooserFlags =
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
+        folderChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc) {
+            try
+            {
                 auto folder = fc.getResult();
                 if (folder != juce::File{} && folder.isDirectory())
                 {
-                    juce::Logger::writeToLog("[Sample SFX] User selected folder: " + folder.getFullPathName());
+                    juce::Logger::writeToLog(
+                        "[Sample SFX] User selected folder: " + folder.getFullPathName());
                     setSampleFolder(folder);
                 }
-            } catch (...) {
-                juce::Logger::writeToLog("[Sample SFX][FATAL] Exception during folder chooser callback");
+            }
+            catch (...)
+            {
+                juce::Logger::writeToLog(
+                    "[Sample SFX][FATAL] Exception during folder chooser callback");
             }
         });
     }
     ImGui::SameLine();
-    
+
     // Current folder info
     if (currentFolderPath.isNotEmpty())
     {
         const juce::String folderName = juce::File(currentFolderPath).getFileName();
         ImGui::Text("%s", folderName.toRawUTF8());
     }
-    
+
     ImGui::Spacing();
-    
+
     // Selection mode (Sequential/Random/Off)
-    auto* selectionModeChoice = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("selectionMode"));
-    int mode = selectionModeChoice ? selectionModeChoice->getIndex() : 0;
-    const char* items[] = { "Sequential", "Random", "Off" };
+    auto* selectionModeChoice =
+        dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("selectionMode"));
+    int         mode = selectionModeChoice ? selectionModeChoice->getIndex() : 0;
+    const char* items[] = {"Sequential", "Random", "Off"};
     if (ImGui::Combo("Selection Mode", &mode, items, 3))
     {
         if (selectionModeChoice)
@@ -951,42 +1048,70 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
             }
         }
     }
-    
+
     ImGui::Spacing();
-    
+
     // Pitch variation slider
     bool pitchModulated = isParamModulated("pitchVariation_mod");
-    if (pitchModulated) { 
-        ImGui::BeginDisabled(); 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f)); 
+    if (pitchModulated)
+    {
+        ImGui::BeginDisabled();
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f));
     }
     // Use live telemetry value if modulated, otherwise use parameter
-    float pitchVar = pitchModulated ? getLiveParamValueFor("pitchVariation_mod", "pitchVariation_live", pitchVariationParam ? pitchVariationParam->load() : 0.0f)
+    float pitchVar = pitchModulated ? getLiveParamValueFor(
+                                          "pitchVariation_mod",
+                                          "pitchVariation_live",
+                                          pitchVariationParam ? pitchVariationParam->load() : 0.0f)
                                     : (pitchVariationParam ? pitchVariationParam->load() : 0.0f);
+
+    // Inline pin for Pitch Mod (Channel 0)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0))
+            ImGui::SameLine();
+    }
+
     if (ImGui::SliderFloat("Pitch Variation", &pitchVar, -2.0f, 2.0f, "%.2f st"))
     {
         if (auto* p = apvts.getParameter("pitchVariation"))
         {
-            p->setValueNotifyingHost(apvts.getParameterRange("pitchVariation").convertTo0to1(pitchVar));
+            p->setValueNotifyingHost(
+                apvts.getParameterRange("pitchVariation").convertTo0to1(pitchVar));
             onModificationEnded();
         }
     }
     if (!pitchModulated)
-        ModuleProcessor::adjustParamOnWheel(apvts.getParameter("pitchVariation"), "pitchVariation", pitchVar);
-    if (pitchModulated) { 
-        ImGui::PopStyleColor(); 
-        ImGui::EndDisabled(); 
+        ModuleProcessor::adjustParamOnWheel(
+            apvts.getParameter("pitchVariation"), "pitchVariation", pitchVar);
+    if (pitchModulated)
+    {
+        ImGui::PopStyleColor();
+        ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextUnformatted("(mod)");
     }
-    
+
     // Gate slider
     bool gateModulated = isParamModulated("gate_mod");
-    if (gateModulated) { 
-        ImGui::BeginDisabled(); 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f)); 
+    if (gateModulated)
+    {
+        ImGui::BeginDisabled();
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f));
     }
-    float gate = gateParam ? gateParam->load() : 0.8f;
+    // Use live telemetry value if modulated, otherwise use parameter
+    float gate =
+        gateModulated
+            ? getLiveParamValueFor("gate_mod", "gate_live", gateParam ? gateParam->load() : 0.8f)
+            : (gateParam ? gateParam->load() : 0.8f);
+
+    // Inline pin for Gate Mod (Channel 1)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(1))
+            ImGui::SameLine();
+    }
+
     if (ImGui::SliderFloat("Gate", &gate, 0.0f, 1.0f, "%.2f"))
     {
         if (!gateModulated)
@@ -1000,51 +1125,80 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
     }
     if (!gateModulated)
         ModuleProcessor::adjustParamOnWheel(apvts.getParameter("gate"), "gate", gate);
-    if (gateModulated) { 
-        ImGui::PopStyleColor(); 
-        ImGui::EndDisabled(); 
+    if (gateModulated)
+    {
+        ImGui::PopStyleColor();
+        ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextUnformatted("(mod)");
     }
-    
+
     ImGui::Spacing();
-    
+
     // Range parameters with live modulation feedback
     bool rangeStartModulated = isParamModulated("rangeStart_mod");
-    if (rangeStartModulated) { 
-        ImGui::BeginDisabled(); 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f)); 
+    if (rangeStartModulated)
+    {
+        ImGui::BeginDisabled();
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f));
     }
-    float rangeStart = rangeStartModulated ? getLiveParamValueFor("rangeStart_mod", "rangeStart_live", rangeStartParam ? rangeStartParam->load() : 0.0f)
-                                          : (rangeStartParam ? rangeStartParam->load() : 0.0f);
+    float rangeStart = rangeStartModulated ? getLiveParamValueFor(
+                                                 "rangeStart_mod",
+                                                 "rangeStart_live",
+                                                 rangeStartParam ? rangeStartParam->load() : 0.0f)
+                                           : (rangeStartParam ? rangeStartParam->load() : 0.0f);
     float rangeEnd = rangeEndParam ? rangeEndParam->load() : 1.0f;
+
+    // Inline pin for Range Start Mod (Channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))
+            ImGui::SameLine();
+    }
+
     if (ImGui::SliderFloat("Range Start", &rangeStart, 0.0f, 1.0f, "%.3f"))
     {
         // Ensure start doesn't exceed end (leave at least 0.001 gap)
         rangeStart = juce::jmin(rangeStart, rangeEnd - 0.001f);
         if (auto* p = apvts.getParameter("rangeStart"))
         {
-            p->setValueNotifyingHost(apvts.getParameterRange("rangeStart").convertTo0to1(rangeStart));
+            p->setValueNotifyingHost(
+                apvts.getParameterRange("rangeStart").convertTo0to1(rangeStart));
             onModificationEnded();
         }
     }
     if (!rangeStartModulated)
-        ModuleProcessor::adjustParamOnWheel(apvts.getParameter("rangeStart"), "rangeStart", rangeStart);
-    if (rangeStartModulated) { 
-        ImGui::PopStyleColor(); 
-        ImGui::EndDisabled(); 
+        ModuleProcessor::adjustParamOnWheel(
+            apvts.getParameter("rangeStart"), "rangeStart", rangeStart);
+    if (rangeStartModulated)
+    {
+        ImGui::PopStyleColor();
+        ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextUnformatted("(mod)");
     }
-    
+
     bool rangeEndModulated = isParamModulated("rangeEnd_mod");
-    if (rangeEndModulated) { 
-        ImGui::BeginDisabled(); 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f)); 
+    if (rangeEndModulated)
+    {
+        ImGui::BeginDisabled();
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f));
     }
-    rangeEnd = rangeEndModulated ? getLiveParamValueFor("rangeEnd_mod", "rangeEnd_live", rangeEndParam ? rangeEndParam->load() : 1.0f)
-                                 : (rangeEndParam ? rangeEndParam->load() : 1.0f);
-    rangeStart = rangeStartParam ? rangeStartParam->load() : 0.0f; // Refresh rangeStart for validation
+    rangeEnd =
+        rangeEndModulated
+            ? getLiveParamValueFor(
+                  "rangeEnd_mod", "rangeEnd_live", rangeEndParam ? rangeEndParam->load() : 1.0f)
+            : (rangeEndParam ? rangeEndParam->load() : 1.0f);
+    rangeStart =
+        rangeStartParam ? rangeStartParam->load() : 0.0f; // Refresh rangeStart for validation
+
+    // Inline pin for Range End Mod (Channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))
+            ImGui::SameLine();
+    }
+
     if (ImGui::SliderFloat("Range End", &rangeEnd, 0.0f, 1.0f, "%.3f"))
     {
         // Ensure end doesn't go below start (leave at least 0.001 gap)
@@ -1057,15 +1211,16 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
     }
     if (!rangeEndModulated)
         ModuleProcessor::adjustParamOnWheel(apvts.getParameter("rangeEnd"), "rangeEnd", rangeEnd);
-    if (rangeEndModulated) { 
-        ImGui::PopStyleColor(); 
-        ImGui::EndDisabled(); 
+    if (rangeEndModulated)
+    {
+        ImGui::PopStyleColor();
+        ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextUnformatted("(mod)");
     }
-    
+
     ImGui::Spacing();
-    
+
     // Current sample info
     if (hasSampleLoaded())
     {
@@ -1073,58 +1228,68 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
         const juce::ScopedLock lock(folderLock);
         ImGui::Text("Index: %d/%d", currentSampleIndex + 1, folderSamples.size());
         ImGui::Text("Duration: %.2f s", sampleDurationSeconds.load());
-        
+
         // === WAVEFORM VISUALIZATION ===
         ImGui::Spacing();
-        
+
         // Read visualization data BEFORE BeginChild (per guide)
         float waveformPreview[VizData::waveformPoints];
         for (int i = 0; i < VizData::waveformPoints; ++i)
         {
             waveformPreview[i] = vizData.waveformPreview[i].load();
         }
-        
+
         // Read range values BEFORE BeginChild (use live telemetry if modulated)
         const bool rangeStartMod = isParamModulated("rangeStart_mod");
         const bool rangeEndMod = isParamModulated("rangeEnd_mod");
-        float rangeStart = rangeStartMod ? getLiveParamValue("rangeStart_live", rangeStartParam ? rangeStartParam->load() : 0.0f)
-                                         : (rangeStartParam ? rangeStartParam->load() : 0.0f);
-        float rangeEnd = rangeEndMod ? getLiveParamValue("rangeEnd_live", rangeEndParam ? rangeEndParam->load() : 1.0f)
-                                     : (rangeEndParam ? rangeEndParam->load() : 1.0f);
-        
+        float      rangeStart =
+            rangeStartMod ? getLiveParamValue(
+                                "rangeStart_live", rangeStartParam ? rangeStartParam->load() : 0.0f)
+                               : (rangeStartParam ? rangeStartParam->load() : 0.0f);
+        float rangeEnd =
+            rangeEndMod
+                ? getLiveParamValue("rangeEnd_live", rangeEndParam ? rangeEndParam->load() : 1.0f)
+                : (rangeEndParam ? rangeEndParam->load() : 1.0f);
+
         // Waveform visualization in child window (following VCO pattern)
         const auto& freqColors = theme.modules.frequency_graph;
-        const auto resolveColor = [](ImU32 value, ImU32 fallback) { return value != 0 ? value : fallback; };
-        const float waveHeight = 120.0f;
+        const auto  resolveColor = [](ImU32 value, ImU32 fallback) {
+            return value != 0 ? value : fallback;
+        };
+        const float  waveHeight = 120.0f;
         const ImVec2 graphSize(itemWidth, waveHeight);
-        
-        if (ImGui::BeginChild("SampleSfxWaveform", graphSize, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+
+        if (ImGui::BeginChild(
+                "SampleSfxWaveform",
+                graphSize,
+                false,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
         {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImDrawList*  drawList = ImGui::GetWindowDrawList();
             const ImVec2 p0 = ImGui::GetWindowPos();
             const ImVec2 p1 = ImVec2(p0.x + graphSize.x, p0.y + graphSize.y);
-            
+
             // Background
             const ImU32 bgColor = resolveColor(freqColors.background, IM_COL32(18, 20, 24, 255));
             drawList->AddRectFilled(p0, p1, bgColor);
-            
+
             // Grid lines
             const ImU32 gridColor = resolveColor(freqColors.grid, IM_COL32(50, 55, 65, 255));
             const float midY = p0.y + graphSize.y * 0.5f;
             drawList->AddLine(ImVec2(p0.x, midY), ImVec2(p1.x, midY), gridColor, 1.0f);
             drawList->AddLine(ImVec2(p0.x, p0.y), ImVec2(p1.x, p0.y), gridColor, 1.0f);
             drawList->AddLine(ImVec2(p0.x, p1.y), ImVec2(p1.x, p1.y), gridColor, 1.0f);
-            
+
             // Clip to graph area (always execute, no conditionals)
             drawList->PushClipRect(p0, p1, true);
-            
+
             // Draw waveform
             const float scaleY = graphSize.y * 0.45f;
             const float stepX = graphSize.x / (float)(VizData::waveformPoints - 1);
-            
+
             const ImU32 waveformColor = ImGui::ColorConvertFloat4ToU32(theme.accent);
-            float prevX = p0.x;
-            float prevY = midY;
+            float       prevX = p0.x;
+            float       prevY = midY;
             for (int i = 0; i < VizData::waveformPoints; ++i)
             {
                 const float sample = juce::jlimit(-1.0f, 1.0f, waveformPreview[i]);
@@ -1135,31 +1300,29 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
                 prevX = x;
                 prevY = y;
             }
-            
+
             // Draw range indicators (vertical lines showing playback range)
             const float rangeStartX = p0.x + rangeStart * graphSize.x;
             const float rangeEndX = p0.x + rangeEnd * graphSize.x;
-            
+
             const ImU32 rangeColor = ImGui::ColorConvertFloat4ToU32(theme.modulation.amplitude);
             const ImU32 rangeFillColor = IM_COL32(255, 255, 0, 30); // Semi-transparent yellow fill
-            
+
             // Fill range area
             drawList->AddRectFilled(
-                ImVec2(rangeStartX, p0.y),
-                ImVec2(rangeEndX, p1.y),
-                rangeFillColor
-            );
-            
+                ImVec2(rangeStartX, p0.y), ImVec2(rangeEndX, p1.y), rangeFillColor);
+
             // Draw range boundary lines
-            drawList->AddLine(ImVec2(rangeStartX, p0.y), ImVec2(rangeStartX, p1.y), rangeColor, 2.0f);
+            drawList->AddLine(
+                ImVec2(rangeStartX, p0.y), ImVec2(rangeStartX, p1.y), rangeColor, 2.0f);
             drawList->AddLine(ImVec2(rangeEndX, p0.y), ImVec2(rangeEndX, p1.y), rangeColor, 2.0f);
-            
+
             drawList->PopClipRect();
-            
+
             // Sample name overlay
             ImGui::SetCursorPos(ImVec2(4, 4));
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 0.9f), "%s", currentSampleName.toRawUTF8());
-            
+
             // Invisible drag blocker
             ImGui::SetCursorPos(ImVec2(0, 0));
             ImGui::InvisibleButton("##sampleSfxWaveformDrag", graphSize);
@@ -1170,20 +1333,22 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
     {
         ImGui::TextDisabled("No sample loaded");
     }
-    
+
     ImGui::Spacing();
-    
+
     // Drag & drop zone
     ImVec2 dropZoneSize = ImVec2(itemWidth, 60.0f);
-    bool isDragging = ImGui::GetDragDropPayload() != nullptr;
-    
+    bool   isDragging = ImGui::GetDragDropPayload() != nullptr;
+
     if (isDragging)
     {
         float time = (float)ImGui::GetTime();
         float pulse = (std::sin(time * 8.0f) * 0.5f + 0.5f);
         float glow = (std::sin(time * 3.0f) * 0.3f + 0.7f);
-        ImU32 fillColor = IM_COL32(0, (int)(180 * glow), (int)(220 * glow), (int)(100 + pulse * 155));
-        ImU32 borderColor = IM_COL32((int)(100 * glow), (int)(255 * pulse), (int)(255 * pulse), 255);
+        ImU32 fillColor =
+            IM_COL32(0, (int)(180 * glow), (int)(220 * glow), (int)(100 + pulse * 155));
+        ImU32 borderColor =
+            IM_COL32((int)(100 * glow), (int)(255 * pulse), (int)(255 * pulse), 255);
         ImGui::PushStyleColor(ImGuiCol_Button, fillColor);
         ImGui::PushStyleColor(ImGuiCol_Border, borderColor);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 3.0f);
@@ -1200,15 +1365,15 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
         ImGui::PopStyleVar();
         ImGui::PopStyleColor(2);
     }
-    
+
     const char* text = isDragging ? "Drop Here!" : "Drop Sample Here";
-    ImVec2 textSize = ImGui::CalcTextSize(text);
-    ImVec2 textPos = ImGui::GetItemRectMin();
+    ImVec2      textSize = ImGui::CalcTextSize(text);
+    ImVec2      textPos = ImGui::GetItemRectMin();
     textPos.x += (dropZoneSize.x - textSize.x) * 0.5f;
     textPos.y += (dropZoneSize.y - textSize.y) * 0.5f;
     ImU32 textColor = isDragging ? IM_COL32(100, 255, 255, 255) : IM_COL32(150, 150, 150, 200);
     ImGui::GetWindowDrawList()->AddText(textPos, textColor, text);
-    
+
     // Make drop target
     if (ImGui::BeginDragDropTarget())
     {
@@ -1223,17 +1388,18 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
                     if (pathLen > 0 && pathLen < payload->DataSize)
                     {
                         juce::String safePath(path, pathLen);
-                        juce::File file(safePath);
+                        juce::File   file(safePath);
                         if (file.existsAsFile())
                         {
-                            try {
+                            try
+                            {
                                 // Get the folder containing this sample
                                 juce::File folder = file.getParentDirectory();
                                 if (folder.isDirectory())
                                 {
                                     // Set the folder first (this scans and loads the first sample)
                                     setSampleFolder(folder);
-                                    
+
                                     // Now find and load the specific dropped sample
                                     const juce::ScopedLock lock(folderLock);
                                     for (int i = 0; i < folderSamples.size(); ++i)
@@ -1252,8 +1418,12 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
                                     loadSample(file);
                                 }
                                 onModificationEnded();
-                            } catch (...) {
-                                juce::Logger::writeToLog("[Sample SFX][FATAL] Exception during drag-drop load: " + safePath);
+                            }
+                            catch (...)
+                            {
+                                juce::Logger::writeToLog(
+                                    "[Sample SFX][FATAL] Exception during drag-drop load: " +
+                                    safePath);
                             }
                         }
                     }
@@ -1262,7 +1432,7 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
         }
         ImGui::EndDragDropTarget();
     }
-    
+
     ImGui::PopItemWidth();
     ImGui::PopID(); // Match PushID(this) at function start
 }
@@ -1270,12 +1440,9 @@ void SampleSfxModuleProcessor::drawParametersInNode(float itemWidth, const std::
 void SampleSfxModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
     // Modulation inputs
-    helpers.drawParallelPins("Pitch Var Mod", 0, nullptr, -1);
-    helpers.drawParallelPins("Gate Mod", 1, nullptr, -1);
+    // Pitch Var Mod (0), Gate Mod (1), Range Start (3), Range End (4) are now drawn inline
     helpers.drawParallelPins("Trigger", 2, nullptr, -1);
-    helpers.drawParallelPins("Range Start Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Range End Mod", 4, nullptr, -1);
-    
+
     // Audio outputs (stereo)
     helpers.drawParallelPins(nullptr, -1, "Out L", 0);
     helpers.drawParallelPins(nullptr, -1, "Out R", 1);
@@ -1288,23 +1455,23 @@ void SampleSfxModuleProcessor::generateWaveformPreview()
     // Clear waveform preview
     for (auto& v : vizData.waveformPreview)
         v.store(0.0f);
-    
+
     if (currentSample == nullptr || currentSample->stereo.getNumSamples() == 0)
         return;
-    
+
     const int numSamples = currentSample->stereo.getNumSamples();
     const int numChannels = currentSample->stereo.getNumChannels();
-    
+
     if (numSamples <= 0 || numChannels <= 0)
         return;
-    
+
     // Downsample to waveformPoints
     const int stride = juce::jmax(1, numSamples / VizData::waveformPoints);
-    
+
     for (int i = 0; i < VizData::waveformPoints; ++i)
     {
         const int sampleIdx = juce::jmin(i * stride, numSamples - 1);
-        
+
         // Average channels for mono preview, or use left channel
         float sample = 0.0f;
         if (numChannels == 1)
@@ -1316,11 +1483,10 @@ void SampleSfxModuleProcessor::generateWaveformPreview()
             // Use left channel (channel 0) for preview
             sample = currentSample->stereo.getSample(0, sampleIdx);
         }
-        
+
         // Clamp and store
         sample = juce::jlimit(-1.0f, 1.0f, sample);
         vizData.waveformPreview[i].store(sample);
     }
 }
 #endif
-

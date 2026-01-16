@@ -35,19 +35,20 @@ public:
     bool getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const override;
 
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded) override;
+    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override;
 private:
     static void HelpMarkerADSR(const char* desc);
 public:
 
     void drawIoPins(const NodePinHelpers& helpers) override
     {
+        // Gate and Trigger inputs stay as parallel pins (no UI controls)
         helpers.drawParallelPins("Gate In", 0, "Env Out", 0);
         helpers.drawParallelPins("Trigger In", 1, "Inv Out", 1);
-        helpers.drawParallelPins("Attack Mod", 2, "EOR Gate", 2);
-        helpers.drawParallelPins("Decay Mod", 3, "EOC Gate", 3);
-        helpers.drawParallelPins("Sustain Mod", 4, nullptr, -1);
-        helpers.drawParallelPins("Release Mod", 5, nullptr, -1);
+        // Attack/Decay/Sustain/Release mods are now inline pins
+        // Draw remaining outputs
+        helpers.drawAudioOutputPin("EOR Gate", 2);
+        helpers.drawAudioOutputPin("EOC Gate", 3);
     }
 
     bool usesCustomPinLayout() const override { return true; }

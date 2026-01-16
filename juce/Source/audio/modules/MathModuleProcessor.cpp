@@ -233,7 +233,7 @@ void MathModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 }
 
 #if defined(PRESET_CREATOR_UI)
-void MathModuleProcessor::drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void MathModuleProcessor::drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
@@ -248,9 +248,16 @@ void MathModuleProcessor::drawParametersInNode (float itemWidth, const std::func
     
     if (isOperationModulated) {
         op = static_cast<int>(getLiveParamValueFor("operation_mod", "operation_live", static_cast<float>(op)));
-        ImGui::BeginDisabled();
     }
     
+    // Inline pin for Op Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+    
+    if (isOperationModulated) ImGui::BeginDisabled();
     if (ImGui::Combo ("Operation", &op, 
         "Add\0Subtract\0Multiply\0Divide\0"
         "Min\0Max\0Power\0Sqrt(A)\0"

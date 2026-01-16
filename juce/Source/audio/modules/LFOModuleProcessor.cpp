@@ -283,8 +283,10 @@ static void HelpMarkerLFO(const char* desc)
     }
 }
 
-void LFOModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void LFOModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     
@@ -303,8 +305,13 @@ void LFOModuleProcessor::drawParametersInNode(float itemWidth, const std::functi
     ThemeText("LFO Parameters", theme.text.section_header);
     ImGui::Spacing();
 
-    // Rate slider with tooltip
+    // Rate slider with inline pin and tooltip
     if (isRateModulated) ImGui::BeginDisabled();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0))  // Channel 0 = Rate Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Rate", &rate, 0.05f, 20.0f, "%.2f Hz", ImGuiSliderFlags_Logarithmic)) if (!isRateModulated) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdRate)) = rate;
     if (!isRateModulated) adjustParamOnWheel(ap.getParameter(paramIdRate), "rate", rate);
     if (ImGui::IsItemDeactivatedAfterEdit() && !isRateModulated) onModificationEnded();
@@ -312,8 +319,13 @@ void LFOModuleProcessor::drawParametersInNode(float itemWidth, const std::functi
     ImGui::SameLine();
     HelpMarkerLFO("LFO rate in Hz\nLogarithmic scale from 0.05 Hz to 20 Hz");
     
-    // Depth slider with tooltip
+    // Depth slider with inline pin and tooltip
     if (isDepthModulated) ImGui::BeginDisabled();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(1))  // Channel 1 = Depth Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Depth", &depth, 0.0f, 1.0f)) if (!isDepthModulated) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdDepth)) = depth;
     if (!isDepthModulated) adjustParamOnWheel(ap.getParameter(paramIdDepth), "depth", depth);
     if (ImGui::IsItemDeactivatedAfterEdit() && !isDepthModulated) onModificationEnded();
@@ -321,8 +333,13 @@ void LFOModuleProcessor::drawParametersInNode(float itemWidth, const std::functi
     ImGui::SameLine();
     HelpMarkerLFO("LFO depth/amplitude (0-1)\nControls output signal strength");
 
-    // Wave combo with tooltip
+    // Wave combo with inline pin and tooltip
     if (isWaveModulated) ImGui::BeginDisabled();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))  // Channel 2 = Wave Mod
+            ImGui::SameLine();
+    }
     if (ImGui::Combo("Wave", &wave, "Sine\0Tri\0Saw\0\0")) if (!isWaveModulated) *dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdWave)) = wave;
     if (!isWaveModulated && ImGui::IsItemHovered())
     {
@@ -529,15 +546,16 @@ void LFOModuleProcessor::drawParametersInNode(float itemWidth, const std::functi
     ImGui::SameLine();
     ImGui::Text("%.0f%%", normalizedValue * 100.0f);
 
-    ImGui::PopID(); // End unique ID
     ImGui::PopItemWidth();
+    ImGui::PopID(); // End visualization child window ID
+    ImGui::PopID(); // End module instance ID
 }
 
 void LFOModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    helpers.drawParallelPins("Rate Mod", 0, "Out", 0);
-    helpers.drawParallelPins("Depth Mod", 1, nullptr, -1);
-    helpers.drawParallelPins("Wave Mod", 2, nullptr, -1);
+    // All modulation inputs (Rate, Depth, Wave) are now inline pins
+    // Only draw the output pin
+    helpers.drawAudioOutputPin("Out", 0);
 }
 
 juce::String LFOModuleProcessor::getAudioInputLabel(int channel) const

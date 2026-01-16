@@ -39,16 +39,23 @@ public:
         const juce::ScopedLock lock(frameMapLock);
         if (!frame.empty())
         {
-            // Use copyTo to avoid reallocation if possible
-            if (gpuFrameMap[sourceId].size() != frame.size() ||
-                gpuFrameMap[sourceId].type() != frame.type())
-                gpuFrameMap[sourceId] = cv::cuda::GpuMat(frame.size(), frame.type());
+            try
+            {
+                // Use copyTo to avoid reallocation if possible
+                if (gpuFrameMap[sourceId].size() != frame.size() ||
+                    gpuFrameMap[sourceId].type() != frame.type())
+                    gpuFrameMap[sourceId] = cv::cuda::GpuMat(frame.size(), frame.type());
 
-            frame.copyTo(gpuFrameMap[sourceId]);
+                frame.copyTo(gpuFrameMap[sourceId]);
 
-            // Invalidate CPU cache because GPU frame is newer
-            // (Lazy download: we only download if getFrame is called)
-            frameMap.erase(sourceId);
+                // Invalidate CPU cache because GPU frame is newer
+                // (Lazy download: we only download if getFrame is called)
+                frameMap.erase(sourceId);
+            }
+            catch (const cv::Exception&)
+            {
+                // Silently ignore GPU errors - fall back to CPU path
+            }
         }
     }
 
@@ -57,24 +64,27 @@ public:
     {
         const juce::ScopedLock lock(frameMapLock);
 
-        // 1. Try to find existing GPU frame
-        auto itGpu = gpuFrameMap.find(sourceId);
-        if (itGpu != gpuFrameMap.end() && !itGpu->second.empty())
+        try
         {
-            // Return clone or ref? GpuMat is ref-counted, but let's be safe with copy/clone for now
-            // to avoid race conditions if the writer updates it immediately.
-            // ACTUALLY, GpuMat copy is shallow (ref). Deep copy needed if async?
-            // For now, let's clone to be safe, like CPU version.
-            return itGpu->second.clone();
-        }
+            // 1. Try to find existing GPU frame
+            auto itGpu = gpuFrameMap.find(sourceId);
+            if (itGpu != gpuFrameMap.end() && !itGpu->second.empty())
+            {
+                return itGpu->second.clone();
+            }
 
-        // 2. If no GPU frame, check CPU frame map and upload
-        auto itCpu = frameMap.find(sourceId);
-        if (itCpu != frameMap.end() && !itCpu->second.empty())
+            // 2. If no GPU frame, check CPU frame map and upload
+            auto itCpu = frameMap.find(sourceId);
+            if (itCpu != frameMap.end() && !itCpu->second.empty())
+            {
+                // Upload to GPU cache
+                gpuFrameMap[sourceId].upload(itCpu->second);
+                return gpuFrameMap[sourceId].clone();
+            }
+        }
+        catch (const cv::Exception&)
         {
-            // Upload to GPU cache
-            gpuFrameMap[sourceId].upload(itCpu->second);
-            return gpuFrameMap[sourceId].clone();
+            // Silently ignore GPU errors
         }
 
         return cv::cuda::GpuMat();
@@ -95,14 +105,21 @@ public:
 
 #if defined(WITH_CUDA_SUPPORT)
         // 2. If no CPU frame, check GPU and download
-        auto itGpu = gpuFrameMap.find(sourceId);
-        if (itGpu != gpuFrameMap.end() && !itGpu->second.empty())
+        try
         {
-            // Download to CPU cache
-            cv::Mat cpuFrame;
-            itGpu->second.download(cpuFrame);
-            frameMap[sourceId] = cpuFrame;
-            return cpuFrame.clone();
+            auto itGpu = gpuFrameMap.find(sourceId);
+            if (itGpu != gpuFrameMap.end() && !itGpu->second.empty())
+            {
+                // Download to CPU cache
+                cv::Mat cpuFrame;
+                itGpu->second.download(cpuFrame);
+                frameMap[sourceId] = cpuFrame;
+                return cpuFrame.clone();
+            }
+        }
+        catch (const cv::Exception&)
+        {
+            // Silently ignore GPU errors
         }
 #endif
 

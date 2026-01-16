@@ -38,12 +38,23 @@ public:
 #if defined(PRESET_CREATOR_UI)
     void drawParametersInNode (float itemWidth,
                                const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                               const std::function<void()>& onModificationEnded) override
+                               const std::function<void()>& onModificationEnded,
+                               const NodePinHelpers* pinHelpers = nullptr) override
     {
+        ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+        
         auto& ap = getAPVTS();
         const auto& theme = ThemeManager::getInstance().getCurrentTheme();
-        float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFrequency, paramIdFrequency, frequencyParam->load()) : 440.0f;
-        int wave = 0; if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdWaveform))) wave = (int) getLiveParamValueFor(paramIdWaveformMod, paramIdWaveform, (float) p->getIndex());
+        
+        const bool freqMod = isParamModulated(paramIdFrequency);
+        const bool waveMod = isParamModulated(paramIdWaveformMod);
+        
+        float freq = freqMod ? getLiveParamValueFor(paramIdFrequency, "frequency_live", frequencyParam ? frequencyParam->load() : 440.0f)
+                             : (frequencyParam ? frequencyParam->load() : 440.0f);
+        int wave = 0;
+        if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdWaveform)))
+            wave = waveMod ? (int)getLiveParamValueFor(paramIdWaveformMod, "waveform_live", (float)p->getIndex())
+                           : p->getIndex();
 
         // Helper for tooltips (imgui_demo.cpp pattern)
         auto HelpMarker = [](const char* desc)
@@ -65,14 +76,19 @@ public:
         ThemeText("Oscillator Control", theme.text.section_header);
         ImGui::Spacing();
         
-        const bool freqMod = isParamModulated(paramIdFrequency);
-        
         // Color-coded modulation indicator
         if (freqMod)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 1.0f, 1.0f)); // Cyan
             ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.4f, 0.8f, 1.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
+        }
+        
+        // Inline pin for Frequency Mod (Channel 0)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(0))
+                ImGui::SameLine();
         }
         
         if (freqMod) ImGui::BeginDisabled();
@@ -252,13 +268,18 @@ public:
         ThemeText("Waveform", theme.text.section_header);
         ImGui::Spacing();
         
-        const bool waveMod = isParamModulated(paramIdWaveformMod);
-        
         // Color-coded modulation indicator
         if (waveMod)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.4f, 1.0f)); // Orange
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.5f, 0.4f, 0.2f, 0.5f));
+        }
+        
+        // Inline pin for Waveform Mod (Channel 1)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(1))
+                ImGui::SameLine();
         }
         
         if (waveMod) ImGui::BeginDisabled();
@@ -439,13 +460,15 @@ public:
         HelpMarker("Live output signal level\nConnect to VCA, Filter, or Audio Out\nUse Gate input to control amplitude");
 
         ImGui::PopItemWidth();
+        ImGui::PopID();  // End unique ID
     }
 
     void drawIoPins(const NodePinHelpers& helpers) override
     {
-        helpers.drawParallelPins("Frequency Mod", 0, "Output", 0);
-        helpers.drawParallelPins("Waveform Mod", 1, nullptr, -1);
+        // Only draw Gate In as parallel pin (channels 0-1 are now inline)
         helpers.drawParallelPins("Gate In", 2, nullptr, -1);
+        // Draw output
+        helpers.drawAudioOutputPin("Output", 0);
     }
 
     juce::String getAudioInputLabel(int channel) const override

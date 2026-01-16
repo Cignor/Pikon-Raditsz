@@ -195,7 +195,7 @@ void QuantizerModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 }
 
 #if defined(PRESET_CREATOR_UI)
-void QuantizerModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void QuantizerModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
@@ -300,8 +300,16 @@ void QuantizerModuleProcessor::drawParametersInNode(float itemWidth, const std::
     bool isScaleModulated = isParamModulated("scale_mod");
     if (isScaleModulated) {
         scale = static_cast<int>(getLiveParamValueFor("scale_mod", "scale_live", static_cast<float>(scale)));
-        ImGui::BeginDisabled();
     }
+    
+    // Inline pin for Scale Mod (Channel 1)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(1))
+            ImGui::SameLine();
+    }
+    
+    if (isScaleModulated) ImGui::BeginDisabled();
     if (ImGui::Combo("Scale", &scale, scales)) if (!isScaleModulated) if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter("scale"))) *p = scale;
     if (ImGui::IsItemDeactivatedAfterEdit()) onModificationEnded();
     // Scroll wheel editing for Scale combo
@@ -324,8 +332,16 @@ void QuantizerModuleProcessor::drawParametersInNode(float itemWidth, const std::
     bool isRootModulated = isParamModulated("root_mod");
     if (isRootModulated) {
         root = static_cast<int>(getLiveParamValueFor("root_mod", "root_live", static_cast<float>(root)));
-        ImGui::BeginDisabled();
     }
+    
+    // Inline pin for Root Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+    
+    if (isRootModulated) ImGui::BeginDisabled();
     if (ImGui::Combo("Root", &root, notes)) if (!isRootModulated) if (auto* p = dynamic_cast<juce::AudioParameterInt*>(ap.getParameter("rootNote"))) *p = root;
     if (ImGui::IsItemDeactivatedAfterEdit()) onModificationEnded();
     // Scroll wheel editing for Root combo
@@ -351,13 +367,9 @@ void QuantizerModuleProcessor::drawParametersInNode(float itemWidth, const std::
 
 void QuantizerModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Channel 0 stays parallel (CV In)
     helpers.drawParallelPins("In", 0, "Out", 0);
-    
-    int busIdx, chanInBus;
-    if (getParamRouting("scale_mod", busIdx, chanInBus))
-        helpers.drawParallelPins("Scale Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-    if (getParamRouting("root_mod", busIdx, chanInBus))
-        helpers.drawParallelPins("Root Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
+    // Channels 1-2 are now inline (Scale Mod, Root Mod)
 }
 
 bool QuantizerModuleProcessor::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const

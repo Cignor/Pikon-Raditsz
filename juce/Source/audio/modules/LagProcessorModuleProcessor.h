@@ -23,13 +23,13 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() override { return apvts; }
 
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded) override;
+    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override;
 
     void drawIoPins(const NodePinHelpers& helpers) override
     {
+        // Only draw signal pin - modulation pins (channels 1-2) are now inline
         helpers.drawParallelPins("Signal In", 0, "Smoothed Out", 0);
-        helpers.drawParallelPins("Rise Mod", 1, nullptr, -1);
-        helpers.drawParallelPins("Fall Mod", 2, nullptr, -1);
+        // Rise Mod (ch 1), Fall Mod (ch 2) are drawn inline in drawParametersInNode
     }
 
     bool usesCustomPinLayout() const override { return true; }

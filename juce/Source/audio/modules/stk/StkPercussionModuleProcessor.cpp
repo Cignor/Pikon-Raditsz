@@ -405,15 +405,15 @@ void StkPercussionModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer
         
         if ((i & 0x3F) == 0)
         {
-            setLiveParamValue(paramIdFrequency, freq);
-            setLiveParamValue(paramIdStrikeVelocity, velocity);
+            setLiveParamValue("frequency_live", freq);
+            setLiveParamValue("strikeVelocity_live", velocity);
             
             // Shakers-specific parameters (only set if instrument type is Shakers)
             const int instrumentType = (int)(instrumentTypeParam != nullptr ? instrumentTypeParam->load() : 0.0f);
             if (instrumentType == 2) // Shakers
             {
-                setLiveParamValue(paramIdDecay, decay);
-                setLiveParamValue(paramIdResonance, resonance);
+                setLiveParamValue("decay_live", decay);
+                setLiveParamValue("resonance_live", resonance);
             }
         }
     }
@@ -471,8 +471,11 @@ bool StkPercussionModuleProcessor::getParamRouting(const juce::String& paramId, 
 #if defined(PRESET_CREATOR_UI)
 void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
                                                          const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                                                         const std::function<void()>& onModificationEnded)
+                                                         const std::function<void()>& onModificationEnded,
+                                                         const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     
@@ -624,8 +627,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Freq Mod (Channel 0)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0))
+            ImGui::SameLine();
+    }
+    
     if (freqMod) ImGui::BeginDisabled();
-    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, paramIdFrequency, frequencyParam->load()) : 440.0f;
+    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, "frequency_live", frequencyParam->load()) : 440.0f;
     if (ImGui::SliderFloat("##freq", &freq, 20.0f, 2000.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic))
     {
         if (!freqMod)
@@ -662,8 +672,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Velocity Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+    
     if (velocityMod) ImGui::BeginDisabled();
-    float velocity = strikeVelocityParam != nullptr ? getLiveParamValueFor(paramIdVelocityMod, paramIdStrikeVelocity, strikeVelocityParam->load()) : 0.8f;
+    float velocity = strikeVelocityParam != nullptr ? getLiveParamValueFor(paramIdVelocityMod, "strikeVelocity_live", strikeVelocityParam->load()) : 0.8f;
     if (ImGui::SliderFloat("##velocity", &velocity, 0.0f, 1.0f, "%.2f"))
     {
         if (!velocityMod)
@@ -736,8 +753,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Stick Hardness Mod (Channel 3)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(3))
+                ImGui::SameLine();
+        }
+        
         if (stickHardnessMod) ImGui::BeginDisabled();
-        float stickHardness = stickHardnessParam != nullptr ? getLiveParamValueFor(paramIdStickHardnessMod, paramIdStickHardness, stickHardnessParam->load()) : 0.5f;
+        float stickHardness = stickHardnessParam != nullptr ? getLiveParamValueFor(paramIdStickHardnessMod, "stickHardness_live", stickHardnessParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##stick", &stickHardness, 0.0f, 1.0f, "%.2f"))
         {
             if (!stickHardnessMod)
@@ -771,8 +795,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Strike Position Mod (Channel 4)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(4))
+                ImGui::SameLine();
+        }
+        
         if (strikePosMod) ImGui::BeginDisabled();
-        float strikePos = strikePositionParam != nullptr ? getLiveParamValueFor(paramIdStrikePositionMod, paramIdStrikePosition, strikePositionParam->load()) : 0.5f;
+        float strikePos = strikePositionParam != nullptr ? getLiveParamValueFor(paramIdStrikePositionMod, "strikePosition_live", strikePositionParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##strikePos", &strikePos, 0.0f, 1.0f, "%.2f"))
         {
             if (!strikePosMod)
@@ -842,8 +873,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Strike Position Mod (Channel 4)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(4))
+                ImGui::SameLine();
+        }
+        
         if (strikePosMod) ImGui::BeginDisabled();
-        float strikePos = strikePositionParam != nullptr ? getLiveParamValueFor(paramIdStrikePositionMod, paramIdStrikePosition, strikePositionParam->load()) : 0.5f;
+        float strikePos = strikePositionParam != nullptr ? getLiveParamValueFor(paramIdStrikePositionMod, "strikePosition_live", strikePositionParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##strikePos", &strikePos, 0.0f, 1.0f, "%.2f"))
         {
             if (!strikePosMod)
@@ -915,8 +953,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Decay Mod (Channel 5)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(5))
+                ImGui::SameLine();
+        }
+        
         if (decayMod) ImGui::BeginDisabled();
-        float decay = decayParam != nullptr ? getLiveParamValueFor(paramIdDecayMod, paramIdDecay, decayParam->load()) : 0.5f;
+        float decay = decayParam != nullptr ? getLiveParamValueFor(paramIdDecayMod, "decay_live", decayParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##decay", &decay, 0.0f, 1.0f, "%.2f"))
         {
             if (!decayMod)
@@ -949,8 +994,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Resonance Mod (Channel 6)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(6))
+                ImGui::SameLine();
+        }
+        
         if (resonanceMod) ImGui::BeginDisabled();
-        float resonance = resonanceParam != nullptr ? getLiveParamValueFor(paramIdResonanceMod, paramIdResonance, resonanceParam->load()) : 0.5f;
+        float resonance = resonanceParam != nullptr ? getLiveParamValueFor(paramIdResonanceMod, "resonance_live", resonanceParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##resonance", &resonance, 0.0f, 1.0f, "%.2f"))
         {
             if (!resonanceMod)
@@ -975,18 +1027,15 @@ void StkPercussionModuleProcessor::drawParametersInNode(float itemWidth,
     }
 
     ImGui::PopItemWidth();
-    ImGui::PopID();
+    ImGui::PopID(); // End module instance ID
 }
 
 void StkPercussionModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    helpers.drawParallelPins("Freq Mod", 0, "Out", 0);
+    // Channels 0, 2, 3, 4, 5, 6 are now inline (all modulation inputs except Strike)
+    // Only draw Strike (ch1) and Output as parallel pins
     helpers.drawParallelPins("Strike", 1, nullptr, -1);
-    helpers.drawParallelPins("Velocity", 2, nullptr, -1);
-    helpers.drawParallelPins("Stick Hardness", 3, nullptr, -1);
-    helpers.drawParallelPins("Strike Position", 4, nullptr, -1);
-    helpers.drawParallelPins("Decay", 5, nullptr, -1);
-    helpers.drawParallelPins("Resonance", 6, nullptr, -1);
+    helpers.drawAudioOutputPin("Out", 0);
 }
 
 juce::String StkPercussionModuleProcessor::getAudioInputLabel(int channel) const

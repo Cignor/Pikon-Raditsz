@@ -46,7 +46,7 @@ public:
 
     // --- UI & Routing Overrides ---
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded) override;
+    void drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override;
     void drawIoPins(const NodePinHelpers& helpers) override;
     bool usesCustomPinLayout() const override { return true; }
 #endif

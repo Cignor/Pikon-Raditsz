@@ -158,33 +158,7 @@ void VideoFileLoaderModule::run()
         }
     }
 
-    // One-time OpenCV build summary: detect if FFMPEG is integrated
-    {
-        static std::atomic<bool> buildInfoLogged{false};
-        if (!buildInfoLogged.exchange(true))
-        {
-            juce::String info(cv::getBuildInformation().c_str());
-            bool         ffmpegYes = false;
-            juce::String ffmpegLine;
-            {
-                juce::StringArray lines;
-                lines.addLines(info);
-                for (const auto& ln : lines)
-                {
-                    if (ln.containsIgnoreCase("FFMPEG:"))
-                    {
-                        ffmpegLine = ln.trim();
-                        if (ln.containsIgnoreCase("YES"))
-                            ffmpegYes = true;
-                        break;
-                    }
-                }
-            }
-            juce::Logger::writeToLog(
-                "[OpenCV Build] FFMPEG integrated: " + juce::String(ffmpegYes ? "YES" : "NO") +
-                (ffmpegLine.isNotEmpty() ? juce::String(" | ") + ffmpegLine : juce::String()));
-        }
-    }
+    // OpenCV FFMPEG detection removed - was spamming logs
 
     bool   sourceIsOpen = false;
     double videoFps = 30.0;        // Default FPS
@@ -197,18 +171,57 @@ void VideoFileLoaderModule::run()
             (!videoCapture.isOpened() || videoFileToLoad != currentVideoFile))
         {
             if (videoCapture.isOpened())
-            {
                 videoCapture.release();
-            }
 
-            bool opened =
-                videoCapture.open(videoFileToLoad.getFullPathName().toStdString(), cv::CAP_FFMPEG);
-            if (!opened)
+#if defined(WITH_CUDA_SUPPORT)
+            // Try GPU first
+            try
             {
-                juce::Logger::writeToLog(
-                    "[VideoFileLoader] FFmpeg backend open failed, retrying default backend: " +
-                    videoFileToLoad.getFullPathName());
-                opened = videoCapture.open(videoFileToLoad.getFullPathName().toStdString());
+                useGpuReader.store(false);
+                gpuReader = cv::cudacodec::createVideoReader(
+                    videoFileToLoad.getFullPathName().toStdString());
+                if (gpuReader)
+                {
+                    auto fmt = gpuReader->format();
+                    // Ensure valid format
+                    if (fmt.width > 0 && fmt.height > 0)
+                    {
+                        useGpuReader.store(true);
+                        juce::Logger::writeToLog(
+                            "[VideoFileLoader] GPU Reader (NVDEC) created successfully: " +
+                            videoFileToLoad.getFileName());
+                    }
+                }
+            }
+            catch (const cv::Exception& e)
+            {
+                gpuErrorMsg = "Init Failed: " + juce::String(e.what());
+                // Silently fall back to CPU - GPU decode not available
+                useGpuReader.store(false);
+            }
+#endif
+
+            // Fallback content: if not GPU, try CPU
+            bool opened = false;
+
+#if defined(WITH_CUDA_SUPPORT)
+            if (useGpuReader.load())
+            {
+                opened = true; // Virtual "open"
+            }
+            else
+#endif
+            {
+                // Fallback to FFmpeg/CPU
+                opened = videoCapture.open(
+                    videoFileToLoad.getFullPathName().toStdString(), cv::CAP_FFMPEG);
+                if (!opened)
+                {
+                    juce::Logger::writeToLog(
+                        "[VideoFileLoader] FFmpeg backend open failed, retrying default backend: " +
+                        videoFileToLoad.getFullPathName());
+                    opened = videoCapture.open(videoFileToLoad.getFullPathName().toStdString());
+                }
             }
             if (opened)
             {
@@ -547,18 +560,16 @@ void VideoFileLoaderModule::run()
             const int  lastFrame = lastPosFrame.load();
             const bool crossedBoundary = (lastFrame < endFrame) && (targetVideoFrame >= endFrame);
 
-            // DIAGNOSTIC LOGGING: Track frame calculations to diagnose loop issues
+            // DIAGNOSTIC LOGGING: Disabled for performance (enable DEBUG_VIDEO_TIMING to restore)
+#if defined(DEBUG_VIDEO_TIMING)
             static int logCounter = 0;
-            if (logCounter++ % 100 == 0) // Log every 100 iterations to avoid spam
+            if (logCounter++ % 1000 == 0) // Reduced frequency
             {
                 juce::Logger::writeToLog(
-                    "[VideoLoader run()] Frame tracking: lastFrame=" + juce::String(lastFrame) +
-                    " targetFrame=" + juce::String(targetVideoFrame) + " endFrame=" +
-                    juce::String(endFrame) + " startFrame=" + juce::String(startFrame) +
-                    " crossedBoundary=" + juce::String(crossedBoundary ? "TRUE" : "FALSE") +
-                    " audioPos=" + juce::String(audioMasterPosition) +
-                    " sourceRate=" + juce::String(sourceRate));
+                    "[VideoLoader] Frame: " + juce::String(targetVideoFrame) + "/" +
+                    juce::String(endFrame));
             }
+#endif
 
             if (crossedBoundary)
             {
@@ -620,8 +631,10 @@ void VideoFileLoaderModule::run()
                 const juce::ScopedLock capLock(captureLock);
                 int currentVideoFrame = (int)videoCapture.get(cv::CAP_PROP_POS_FRAMES);
 
-                // Only update the video if the target frame is different from the current one.
-                if (currentVideoFrame != targetVideoFrame)
+                // OPTIMIZATION: Only seek if we're significantly out of sync (>2 frames)
+                // This avoids expensive FFmpeg keyframe hunting on every frame
+                const int frameDrift = std::abs(currentVideoFrame - targetVideoFrame);
+                if (frameDrift > 2)
                 {
                     videoCapture.set(cv::CAP_PROP_POS_FRAMES, targetVideoFrame);
                 }
@@ -635,8 +648,35 @@ void VideoFileLoaderModule::run()
                 if (videoCapture.read(frame))
                 {
                     if (myLogicalId != 0)
+                    {
+#if defined(WITH_CUDA_SUPPORT)
+                        // OPTIMIZATION: Upload to GPU immediately after decode
+                        // This avoids on-demand upload in getGpuFrame() for each consumer
+                        try
+                        {
+                            cv::cuda::GpuMat gpuFrameUpload;
+                            gpuFrameUpload.upload(frame);
+                            VideoFrameManager::getInstance().setGpuFrame(
+                                myLogicalId, gpuFrameUpload);
+                        }
+                        catch (const cv::Exception&)
+                        {
+                            // Silently fall back to CPU if GPU upload fails
+                            VideoFrameManager::getInstance().setFrame(myLogicalId, frame);
+                        }
+#else
                         VideoFrameManager::getInstance().setFrame(myLogicalId, frame);
-                    updateGuiFrame(frame);
+#endif
+                    }
+
+                    // OPTIMIZATION: Throttle GUI updates to ~30 FPS
+                    const double now = juce::Time::getMillisecondCounterHiRes();
+                    if (now - lastGuiUpdateTimeMs >= 33.0) // ~30 FPS for GUI
+                    {
+                        updateGuiFrame(frame);
+                        lastGuiUpdateTimeMs = now;
+                    }
+
                     lastPosFrame.store((int)videoCapture.get(cv::CAP_PROP_POS_FRAMES));
                     if (lastFourcc.load() == 0)
                         lastFourcc.store((int)videoCapture.get(cv::CAP_PROP_FOURCC));
@@ -646,10 +686,57 @@ void VideoFileLoaderModule::run()
                 lastProcessTimeMs = (float)elapsed;
                 lastProcessWasGpu = false; // CPU decode (FFMPEG)
             }
+
+            // GPU Reader (Hybrid Logic)
+#if defined(WITH_CUDA_SUPPORT)
+            else if (playing.load() && useGpuReader.load() && gpuReader)
+            {
+                // Note: seeking handled by recreating reader or nextFrame skips?
+                // cv::cudacodec::VideoReader doesn't support random access SEEK_FRAME well.
+                // But for linear playback it is fine.
+                // We will handle seeking separately (by re-creating reader or accepting
+                // limitation).
+
+                double startTime = juce::Time::getMillisecondCounterHiRes();
+                bool   frameRead = false;
+
+                if (gpuReader->nextFrame(gpuFrame))
+                {
+                    if (!gpuFrame.empty())
+                    {
+                        if (myLogicalId != 0)
+                            VideoFrameManager::getInstance().setGpuFrame(myLogicalId, gpuFrame);
+
+                        if (needPreviewFrame.load() || true)
+                        {
+                            cv::Mat frame;
+                            gpuFrame.download(frame);
+                            updateGuiFrame(frame);
+                        }
+                        frameRead = true;
+                    }
+                }
+                else
+                {
+                    // Loop or Stop?
+                    // Reader finished.
+                }
+
+                double elapsed = juce::Time::getMillisecondCounterHiRes() - startTime;
+                lastProcessTimeMs = (float)elapsed;
+                lastProcessWasGpu = true;
+            }
+#endif
         }
 
-        // A short sleep to prevent this thread from consuming 100% CPU
-        wait(5);
+        // OPTIMIZATION: Frame-rate throttling instead of fixed 5ms sleep
+        // Sleep until the next frame is due based on video FPS
+        const double targetFrameMs = (videoFps > 0.0) ? (1000.0 / videoFps) : 16.67;
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        const double elapsedSinceLastFrame = now - lastFrameTimeMs;
+        const int    sleepMs = juce::jmax(1, (int)(targetFrameMs - elapsedSinceLastFrame));
+        wait(sleepMs);
+        lastFrameTimeMs = juce::Time::getMillisecondCounterHiRes();
     }
 
     videoCapture.release();
@@ -676,7 +763,7 @@ void VideoFileLoaderModule::updateGuiFrame(const cv::Mat& frame)
 juce::Image VideoFileLoaderModule::getLatestFrame()
 {
     const juce::ScopedLock lock(imageLock);
-    return latestFrameForGui.createCopy();
+    return latestFrameForGui; // Callers can copy if needed
 }
 
 void VideoFileLoaderModule::updateLastKnownNormalizedFromSamples(juce::int64 samplePos)
@@ -1322,6 +1409,21 @@ void VideoFileLoaderModule::drawParametersInNode(
         float minPos = juce::jlimit(0.0f, 1.0f, inN);
         float maxPos = juce::jlimit(minPos, 1.0f, outN);
         pos = juce::jlimit(minPos, maxPos, pos);
+
+        // Decoder status
+#if defined(WITH_CUDA_SUPPORT)
+        if (currentVideoFile.existsAsFile())
+        {
+            if (useGpuReader.load())
+            {
+                ThemeText("Decoder: NVDEC (GPU)", theme.text.success);
+            }
+            else
+            {
+                ThemeText("Decoder: FFmpeg (CPU)", theme.text.warning);
+            }
+        }
+#endif
 
         // Position slider (manual scrub when not synced to transport)
         bool sliderChanged = false;

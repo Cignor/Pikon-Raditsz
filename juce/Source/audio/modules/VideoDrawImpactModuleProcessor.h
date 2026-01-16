@@ -48,8 +48,12 @@ private:
     {
         double positionSeconds = 0.0;
         double durationSeconds = 0.0;
+        double rangeStartSeconds = 0.0;
+        double rangeEndSeconds = 0.0;
         bool isActive = false;
         bool isValid = false;
+        bool hasRange = false;
+        bool loopEnabled = false;
     };
 
     void run() override;

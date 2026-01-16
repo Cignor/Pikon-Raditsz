@@ -241,8 +241,11 @@ void ShapingOscillatorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
 #if defined(PRESET_CREATOR_UI)
 void ShapingOscillatorModuleProcessor::drawParametersInNode (float itemWidth,
                                                       const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                                                      const std::function<void()>& onModificationEnded)
+                                                      const std::function<void()>& onModificationEnded,
+                                                      const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
 
@@ -267,6 +270,13 @@ void ShapingOscillatorModuleProcessor::drawParametersInNode (float itemWidth,
     // === SECTION: Oscillator ===
     ThemeText("OSCILLATOR", theme.text.section_header);
 
+    // Inline pin for Freq Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+
     if (freqIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Frequency", &freq, 20.0f, 20000.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic))
     {
@@ -278,6 +288,14 @@ void ShapingOscillatorModuleProcessor::drawParametersInNode (float itemWidth,
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Base oscillator frequency");
 
     const bool waveIsMod = isParamModulated(paramIdWaveformMod);
+    
+    // Inline pin for Wave Mod (Channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))
+            ImGui::SameLine();
+    }
+    
     if (waveIsMod) ImGui::BeginDisabled();
     if (ImGui::Combo("Waveform", &wave, "Sine\0Saw\0Square\0\0"))
     {
@@ -337,6 +355,13 @@ void ShapingOscillatorModuleProcessor::drawParametersInNode (float itemWidth,
     // === SECTION: Waveshaping ===
     ThemeText("WAVESHAPING", theme.text.section_header);
 
+    // Inline pin for Drive Mod (Channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))
+            ImGui::SameLine();
+    }
+
     if (driveIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Drive", &drive, 1.0f, 50.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
     {
@@ -346,6 +371,13 @@ void ShapingOscillatorModuleProcessor::drawParametersInNode (float itemWidth,
     if (ImGui::IsItemDeactivatedAfterEdit()) onModificationEnded();
     if (driveIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Waveshaping amount (1=clean, 50=extreme)");
+
+    // Inline pin for Dry/Wet Mod (Channel 5)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(5))
+            ImGui::SameLine();
+    }
 
     if (dryWetIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Dry/Wet", &dryWet, 0.0f, 1.0f, "%.2f"))
@@ -459,18 +491,17 @@ void ShapingOscillatorModuleProcessor::drawParametersInNode (float itemWidth,
     ImGui::SameLine();
     ImGui::Text("%.0f%%", normalizedLevel * 100.0f);
 
-    ImGui::PopID(); // End unique ID
+    ImGui::PopID(); // End visualization child window ID
     ImGui::PopItemWidth();
+    ImGui::PopID(); // End module instance ID
 }
 
 void ShapingOscillatorModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Channels 0-1 stay parallel (audio inputs/outputs)
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
-    helpers.drawParallelPins("Freq Mod", 2, nullptr, -1);
-    helpers.drawParallelPins("Wave Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Drive Mod", 4, nullptr, -1);
-    helpers.drawParallelPins("Dry/Wet Mod", 5, nullptr, -1);
+    // Channels 2-5 are now inline (all modulation inputs)
 }
 
 juce::String ShapingOscillatorModuleProcessor::getAudioInputLabel(int channel) const

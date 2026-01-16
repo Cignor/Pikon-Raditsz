@@ -341,8 +341,10 @@ void FunctionGeneratorModuleProcessor::generateOutputs(float selectedValue, floa
 }
 
 #if defined(PRESET_CREATOR_UI)
-void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     
@@ -370,6 +372,14 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
     {
         const bool rateIsMod = isParamModulated(paramIdRateMod);
         float rate = rateIsMod ? getLiveParamValueFor(paramIdRateMod, "rate_live", rateParam->load()) : rateParam->load();
+        
+        // Inline pin for Rate Mod (Channel 3)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(3))
+                ImGui::SameLine();
+        }
+        
         if (rateIsMod) ImGui::BeginDisabled();
         if (ImGui::SliderFloat("Rate", &rate, 0.1f, 100.0f, "%.2f Hz", ImGuiSliderFlags_Logarithmic)) {
             if (!rateIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdRate)) = rate;
@@ -389,6 +399,14 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
     
     const bool slewIsMod = isParamModulated(paramIdSlewMod);
     float slew = slewIsMod ? getLiveParamValueFor(paramIdSlewMod, "slew_live", slewParam->load()) : slewParam->load();
+    
+    // Inline pin for Slew Mod (Channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))
+            ImGui::SameLine();
+    }
+    
     if (slewIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Slew", &slew, 0.0f, 1.0f, "%.3f")) {
         if (!slewIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdSlew)) = slew;
@@ -406,6 +424,14 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
 
     const bool gateThreshIsMod = isParamModulated(paramIdGateThreshMod);
     float gateThresh = gateThreshIsMod ? getLiveParamValueFor(paramIdGateThreshMod, "gateThresh_live", gateThreshParam->load()) : gateThreshParam->load();
+    
+    // Inline pin for Gate Thresh Mod (Channel 5)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(5))
+            ImGui::SameLine();
+    }
+    
     if (gateThreshIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Gate Thr", &gateThresh, 0.0f, 1.0f, "%.2f")) {
         if (!gateThreshIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdGateThresh)) = gateThresh;
@@ -417,6 +443,14 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
 
     const bool trigThreshIsMod = isParamModulated(paramIdTrigThreshMod);
     float trigThresh = trigThreshIsMod ? getLiveParamValueFor(paramIdTrigThreshMod, "trigThresh_live", trigThreshParam->load()) : trigThreshParam->load();
+    
+    // Inline pin for Trig Thresh Mod (Channel 6)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(6))
+            ImGui::SameLine();
+    }
+    
     if (trigThreshIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Trig Thr", &trigThresh, 0.0f, 1.0f, "%.2f")) {
         if (!trigThreshIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdTrigThresh)) = trigThresh;
@@ -428,6 +462,14 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
 
     const bool pitchBaseIsMod = isParamModulated(paramIdPitchBaseMod);
     float pitchBase = pitchBaseIsMod ? getLiveParamValueFor(paramIdPitchBaseMod, "pitchBase_live", pitchBaseParam->load()) : pitchBaseParam->load();
+    
+    // Inline pin for Pitch Base Mod (Channel 7)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(7))
+            ImGui::SameLine();
+    }
+    
     if (pitchBaseIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Pitch Base", &pitchBase, -24.0f, 24.0f, "%.1f st")) {
         if (!pitchBaseIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdPitchBase)) = pitchBase;
@@ -439,6 +481,14 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
 
     const bool valueMultIsMod = isParamModulated(paramIdValueMultMod);
     float valueMult = valueMultIsMod ? getLiveParamValueFor(paramIdValueMultMod, "valueMult_live", valueMultParam->load()) : valueMultParam->load();
+    
+    // Inline pin for Value Mult Mod (Channel 8)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(8))
+            ImGui::SameLine();
+    }
+    
     if (valueMultIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Value Mult", &valueMult, 0.0f, 10.0f, "%.2f")) {
         if (!valueMultIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdValueMult)) = valueMult;
@@ -455,14 +505,25 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
     ThemeText("CURVE EDITOR", theme.text.section_header);
 
     int activeEditorCurve = static_cast<int>(curveSelectParam->load());
-    if (isParamInputConnected(paramIdCurveSelectMod)) {
+    const bool curveSelectIsMod = isParamInputConnected(paramIdCurveSelectMod);
+    if (curveSelectIsMod) {
         activeEditorCurve = static_cast<int>(getLiveParamValueFor(paramIdCurveSelectMod, "curveSelect_live", (float)activeEditorCurve));
     }
+    
+    // Inline pin for Curve Select Mod (Channel 9)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(9))
+            ImGui::SameLine();
+    }
+    
+    if (curveSelectIsMod) ImGui::BeginDisabled();
     if (ImGui::Button("Blue")) { if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect))) *p = 0; onModificationEnded(); }
     ImGui::SameLine();
     if (ImGui::Button("Red")) { if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect))) *p = 1; onModificationEnded(); }
     ImGui::SameLine();
     if (ImGui::Button("Green")) { if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect))) *p = 2; onModificationEnded(); }
+    if (curveSelectIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
     
     // Canvas Setup
     ImGui::Dummy(ImVec2(0.0f, 5.0f));
@@ -543,9 +604,10 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
     }
     ImGui::EndChild();
     
-    ImGui::PopID(); // End unique ID
+    ImGui::PopID(); // End visualization child window ID
     
     ImGui::PopItemWidth();
+    ImGui::PopID(); // End module instance ID
 }
 
 

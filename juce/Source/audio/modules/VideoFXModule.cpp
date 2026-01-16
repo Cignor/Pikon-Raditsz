@@ -12,6 +12,7 @@
 
 #if defined(PRESET_CREATOR_UI)
 #include <imgui.h>
+#include <imgui_internal.h> // For WorkRect workaround to fix widget bleeding in nodes
 #include "../../preset_creator/theme/ThemeManager.h"
 #endif
 
@@ -19,19 +20,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout VideoFXModule::createParamet
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // GPU toggle
+    // === ARCHITECTURE ===
     params.push_back(std::make_unique<juce::AudioParameterBool>("useGpu", "Use GPU (CUDA)", true));
-
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("wetDryMix", "Wet/Dry Mix", 0.0f, 1.0f, 1.0f));
     params.push_back(
         std::make_unique<juce::AudioParameterChoice>(
             "zoomLevel", "Zoom Level", juce::StringArray{"Small", "Normal", "Large"}, 1));
 
-    // Color
+    // === COLOR ADJUSTMENTS ===
     params.push_back(
         std::make_unique<juce::AudioParameterFloat>(
             "brightness", "Brightness", -100.0f, 100.0f, 0.0f));
     params.push_back(
         std::make_unique<juce::AudioParameterFloat>("contrast", "Contrast", 0.0f, 3.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("gamma", "Gamma", 0.1f, 3.0f, 1.0f));
     params.push_back(
         std::make_unique<juce::AudioParameterFloat>("saturation", "Saturation", 0.0f, 3.0f, 1.0f));
     params.push_back(
@@ -48,24 +52,116 @@ juce::AudioProcessorValueTreeState::ParameterLayout VideoFXModule::createParamet
         std::make_unique<juce::AudioParameterFloat>(
             "temperature", "Temperature", -1.0f, 1.0f, 0.0f));
 
-    // Filters & Effects
+    // Levels (Black/White Point)
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "levelsBlack", "Levels Black", 0.0f, 255.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "levelsWhite", "Levels White", 0.0f, 255.0f, 255.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "levelsGamma", "Levels Gamma", 0.1f, 3.0f, 1.0f));
+
+    // Channel Mixer (9 coefficients for 3x3 matrix)
+    params.push_back(
+        std::make_unique<juce::AudioParameterBool>("channelMixerEnable", "Channel Mixer", false));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixRR", "R->R", -2.0f, 2.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixRG", "G->R", -2.0f, 2.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixRB", "B->R", -2.0f, 2.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixGR", "R->G", -2.0f, 2.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixGG", "G->G", -2.0f, 2.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixGB", "B->G", -2.0f, 2.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixBR", "R->B", -2.0f, 2.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixBG", "G->B", -2.0f, 2.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("mixBB", "B->B", -2.0f, 2.0f, 1.0f));
+
+    // Blend with Solid Color
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "blendColorAmount", "Color Blend", 0.0f, 1.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("blendColorR", "Blend Red", 0.0f, 1.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "blendColorG", "Blend Green", 0.0f, 1.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("blendColorB", "Blend Blue", 0.0f, 1.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            "blendMode",
+            "Blend Mode",
+            juce::StringArray{"Normal", "Multiply", "Screen", "Overlay", "Add"},
+            0));
+
+    // === FILTERS & EFFECTS ===
     params.push_back(
         std::make_unique<juce::AudioParameterFloat>("sharpen", "Sharpen", 0.0f, 2.0f, 0.0f));
     params.push_back(
         std::make_unique<juce::AudioParameterFloat>("blur", "Blur", 0.0f, 20.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("emboss", "Emboss", false));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "embossStrength", "Emboss Strength", 0.5f, 3.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "noiseAmount", "Noise/Grain", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterBool>("grayscale", "Grayscale", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>("invert", "Invert Colors", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("solarize", "Solarize", false));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "solarizeThreshold", "Solarize Thresh", 0.0f, 255.0f, 128.0f));
+
+    // === GEOMETRIC ===
     params.push_back(std::make_unique<juce::AudioParameterBool>("flipH", "Flip Horizontal", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>("flipV", "Flip Vertical", false));
+    params.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            "mirror",
+            "Mirror",
+            juce::StringArray{"None", "Left-Right", "Right-Left", "Top-Bottom", "Bottom-Top"},
+            0));
+    params.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            "rotation", "Rotation", juce::StringArray{"0", "90", "180", "270"}, 0));
 
-    // Threshold Effect
+    // Threshold & Edge
     params.push_back(
         std::make_unique<juce::AudioParameterBool>("thresholdEnable", "Enable Threshold", false));
     params.push_back(
         std::make_unique<juce::AudioParameterFloat>(
             "thresholdLevel", "Threshold Level", 0.0f, 255.0f, 127.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterBool>("cannyEnable", "Edge Detect", false));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "cannyThresh1", "Canny Thresh 1", 0.0f, 255.0f, 50.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "cannyThresh2", "Canny Thresh 2", 0.0f, 255.0f, 150.0f));
 
-    // New Effects
+    // Edge Glow
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "edgeGlowAmount", "Edge Glow", 0.0f, 1.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("edgeGlowR", "Glow Red", 0.0f, 1.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("edgeGlowG", "Glow Green", 0.0f, 1.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>("edgeGlowB", "Glow Blue", 0.0f, 1.0f, 1.0f));
+
+    // === STYLIZE ===
     params.push_back(
         std::make_unique<juce::AudioParameterInt>(
             "posterizeLevels", "Posterize Levels", 2, 16, 16));
@@ -79,16 +175,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout VideoFXModule::createParamet
         std::make_unique<juce::AudioParameterInt>(
             "pixelateSize", "Pixelate Block Size", 1, 128, 1));
     params.push_back(
-        std::make_unique<juce::AudioParameterBool>("cannyEnable", "Edge Detect", false));
-    params.push_back(
-        std::make_unique<juce::AudioParameterFloat>(
-            "cannyThresh1", "Canny Thresh 1", 0.0f, 255.0f, 50.0f));
-    params.push_back(
-        std::make_unique<juce::AudioParameterFloat>(
-            "cannyThresh2", "Canny Thresh 2", 0.0f, 255.0f, 150.0f));
-    params.push_back(
         std::make_unique<juce::AudioParameterChoice>(
             "kaleidoscope", "Kaleidoscope", juce::StringArray{"None", "4-Way", "8-Way"}, 0));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "scanlineAmount", "Scanlines", 0.0f, 1.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterInt>("scanlineSpacing", "Scanline Spacing", 1, 10, 2));
+    params.push_back(
+        std::make_unique<juce::AudioParameterBool>("ditherEnable", "Dithering", false));
+    params.push_back(
+        std::make_unique<juce::AudioParameterInt>("ditherLevels", "Dither Levels", 2, 8, 4));
+
+    // === DISTORTION ===
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "chromaAberration", "Chromatic Aberration", 0.0f, 20.0f, 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "zoomBlurAmount", "Zoom Blur", 0.0f, 1.0f, 0.0f));
 
     return {params.begin(), params.end()};
 }
@@ -101,43 +206,95 @@ VideoFXModule::VideoFXModule()
       juce::Thread("VideoFX Thread"),
       apvts(*this, nullptr, "VideoFXParams", createParameterLayout())
 {
-    // GPU toggle
+    // === ARCHITECTURE ===
     useGpuParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("useGpu"));
-
+    wetDryMixParam = apvts.getRawParameterValue("wetDryMix");
     zoomLevelParam = apvts.getRawParameterValue("zoomLevel");
+
+    // === COLOR ===
     brightnessParam = apvts.getRawParameterValue("brightness");
     contrastParam = apvts.getRawParameterValue("contrast");
+    gammaParam = apvts.getRawParameterValue("gamma");
     saturationParam = apvts.getRawParameterValue("saturation");
     hueShiftParam = apvts.getRawParameterValue("hueShift");
     gainRedParam = apvts.getRawParameterValue("gainRed");
     gainGreenParam = apvts.getRawParameterValue("gainGreen");
     gainBlueParam = apvts.getRawParameterValue("gainBlue");
+    sepiaParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("sepia"));
+    temperatureParam = apvts.getRawParameterValue("temperature");
+
+    // Levels
+    levelsBlackParam = apvts.getRawParameterValue("levelsBlack");
+    levelsWhiteParam = apvts.getRawParameterValue("levelsWhite");
+    levelsGammaParam = apvts.getRawParameterValue("levelsGamma");
+
+    // Channel Mixer
+    channelMixerEnableParam =
+        dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("channelMixerEnable"));
+    mixRRParam = apvts.getRawParameterValue("mixRR");
+    mixRGParam = apvts.getRawParameterValue("mixRG");
+    mixRBParam = apvts.getRawParameterValue("mixRB");
+    mixGRParam = apvts.getRawParameterValue("mixGR");
+    mixGGParam = apvts.getRawParameterValue("mixGG");
+    mixGBParam = apvts.getRawParameterValue("mixGB");
+    mixBRParam = apvts.getRawParameterValue("mixBR");
+    mixBGParam = apvts.getRawParameterValue("mixBG");
+    mixBBParam = apvts.getRawParameterValue("mixBB");
+
+    // Blend Color
+    blendColorAmountParam = apvts.getRawParameterValue("blendColorAmount");
+    blendColorRParam = apvts.getRawParameterValue("blendColorR");
+    blendColorGParam = apvts.getRawParameterValue("blendColorG");
+    blendColorBParam = apvts.getRawParameterValue("blendColorB");
+    blendModeParam = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("blendMode"));
+
+    // === FILTERS ===
     sharpenParam = apvts.getRawParameterValue("sharpen");
     blurParam = apvts.getRawParameterValue("blur");
+    embossParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("emboss"));
+    embossStrengthParam = apvts.getRawParameterValue("embossStrength");
+    noiseAmountParam = apvts.getRawParameterValue("noiseAmount");
     grayscaleParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("grayscale"));
     invertParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("invert"));
+    solarizeParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("solarize"));
+    solarizeThresholdParam = apvts.getRawParameterValue("solarizeThreshold");
+
+    // === GEOMETRIC ===
     flipHorizontalParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("flipH"));
     flipVerticalParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("flipV"));
+    mirrorModeParam = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("mirror"));
+    rotationModeParam = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("rotation"));
 
-    // Initialize threshold parameters
+    // === THRESHOLD & EDGE ===
     thresholdEnableParam =
         dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("thresholdEnable"));
     thresholdLevelParam = apvts.getRawParameterValue("thresholdLevel");
+    cannyEnableParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("cannyEnable"));
+    cannyThresh1Param = apvts.getRawParameterValue("cannyThresh1");
+    cannyThresh2Param = apvts.getRawParameterValue("cannyThresh2");
+    edgeGlowAmountParam = apvts.getRawParameterValue("edgeGlowAmount");
+    edgeGlowRParam = apvts.getRawParameterValue("edgeGlowR");
+    edgeGlowGParam = apvts.getRawParameterValue("edgeGlowG");
+    edgeGlowBParam = apvts.getRawParameterValue("edgeGlowB");
 
-    // Initialize new effect parameters
-    sepiaParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("sepia"));
-    temperatureParam = apvts.getRawParameterValue("temperature");
+    // === STYLIZE ===
     posterizeLevelsParam =
         dynamic_cast<juce::AudioParameterInt*>(apvts.getParameter("posterizeLevels"));
     vignetteAmountParam = apvts.getRawParameterValue("vignetteAmount");
     vignetteSizeParam = apvts.getRawParameterValue("vignetteSize");
     pixelateBlockSizeParam =
         dynamic_cast<juce::AudioParameterInt*>(apvts.getParameter("pixelateSize"));
-    cannyEnableParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("cannyEnable"));
-    cannyThresh1Param = apvts.getRawParameterValue("cannyThresh1");
-    cannyThresh2Param = apvts.getRawParameterValue("cannyThresh2");
     kaleidoscopeModeParam =
         dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("kaleidoscope"));
+    scanlineAmountParam = apvts.getRawParameterValue("scanlineAmount");
+    scanlineSpacingParam =
+        dynamic_cast<juce::AudioParameterInt*>(apvts.getParameter("scanlineSpacing"));
+    ditherEnableParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("ditherEnable"));
+    ditherLevelsParam = dynamic_cast<juce::AudioParameterInt*>(apvts.getParameter("ditherLevels"));
+
+    // === DISTORTION ===
+    chromaAberrationParam = apvts.getRawParameterValue("chromaAberration");
+    zoomBlurAmountParam = apvts.getRawParameterValue("zoomBlurAmount");
 }
 
 VideoFXModule::~VideoFXModule()
@@ -446,6 +603,278 @@ void VideoFXModule::applyKaleidoscope(cv::Mat& ioFrame, int mode)
     }
 }
 
+// ==============================================================================
+// === NEW CPU EFFECT FUNCTIONS =================================================
+// ==============================================================================
+
+void VideoFXModule::applyGamma(cv::Mat& ioFrame, float gamma)
+{
+    if (gamma == 1.0f)
+        return;
+    cv::Mat lut(1, 256, CV_8U);
+    for (int i = 0; i < 256; i++)
+        lut.at<uchar>(i) = cv::saturate_cast<uchar>(std::pow(i / 255.0f, gamma) * 255.0f);
+    cv::LUT(ioFrame, lut, ioFrame);
+}
+
+void VideoFXModule::applyLevels(cv::Mat& ioFrame, float black, float white, float gamma)
+{
+    if (black == 0.0f && white == 255.0f && gamma == 1.0f)
+        return;
+    float range = white - black;
+    if (range <= 0)
+        range = 1.0f;
+    cv::Mat lut(1, 256, CV_8U);
+    for (int i = 0; i < 256; i++)
+    {
+        float normalized = (i - black) / range;
+        normalized = std::clamp(normalized, 0.0f, 1.0f);
+        if (gamma != 1.0f)
+            normalized = std::pow(normalized, gamma);
+        lut.at<uchar>(i) = cv::saturate_cast<uchar>(normalized * 255.0f);
+    }
+    cv::LUT(ioFrame, lut, ioFrame);
+}
+
+void VideoFXModule::applyChannelMixer(
+    cv::Mat& ioFrame,
+    float    rr,
+    float    rg,
+    float    rb,
+    float    gr,
+    float    gg,
+    float    gb,
+    float    br,
+    float    bg,
+    float    bb)
+{
+    if (rr == 1.0f && rg == 0.0f && rb == 0.0f && gr == 0.0f && gg == 1.0f && gb == 0.0f &&
+        br == 0.0f && bg == 0.0f && bb == 1.0f)
+        return;
+    cv::Mat kernel = (cv::Mat_<float>(3, 3) << bb, bg, br, gb, gg, gr, rb, rg, rr);
+    cv::transform(ioFrame, ioFrame, kernel);
+}
+
+void VideoFXModule::applyBlendColor(
+    cv::Mat& ioFrame,
+    float    amount,
+    float    r,
+    float    g,
+    float    b,
+    int      blendMode)
+{
+    if (amount <= 0.0f)
+        return;
+    cv::Mat overlay(ioFrame.size(), ioFrame.type(), cv::Scalar(b * 255, g * 255, r * 255));
+    cv::Mat blended;
+    switch (blendMode)
+    {
+    case 0:
+        cv::addWeighted(ioFrame, 1.0f - amount, overlay, amount, 0, blended);
+        break;
+    case 1:
+        cv::multiply(ioFrame, overlay, blended, 1.0 / 255.0);
+        cv::addWeighted(ioFrame, 1.0f - amount, blended, amount, 0, blended);
+        break;
+    case 4:
+        cv::add(ioFrame, overlay * amount, blended);
+        break;
+    default:
+        cv::addWeighted(ioFrame, 1.0f - amount, overlay, amount, 0, blended);
+        break;
+    }
+    blended.copyTo(ioFrame);
+}
+
+void VideoFXModule::applySolarize(cv::Mat& ioFrame, float threshold)
+{
+    cv::Mat lut(1, 256, CV_8U);
+    for (int i = 0; i < 256; i++)
+        lut.at<uchar>(i) = (i > threshold) ? (255 - i) : i;
+    cv::LUT(ioFrame, lut, ioFrame);
+}
+
+void VideoFXModule::applyEmboss(cv::Mat& ioFrame, float strength)
+{
+    cv::Mat kernel =
+        (cv::Mat_<float>(3, 3) << -2 * strength,
+         -strength,
+         0,
+         -strength,
+         1,
+         strength,
+         0,
+         strength,
+         2 * strength);
+    cv::filter2D(ioFrame, ioFrame, -1, kernel);
+    ioFrame += cv::Scalar(128, 128, 128);
+}
+
+void VideoFXModule::applyNoise(cv::Mat& ioFrame, float amount)
+{
+    if (amount <= 0.0f)
+        return;
+    cv::Mat noise(ioFrame.size(), ioFrame.type());
+    cv::randn(noise, 0, amount * 50);
+    cv::add(ioFrame, noise, ioFrame);
+}
+
+void VideoFXModule::applyMirror(cv::Mat& ioFrame, int mode)
+{
+    if (mode == 0)
+        return;
+    int     w = ioFrame.cols, h = ioFrame.rows, halfW = w / 2, halfH = h / 2;
+    cv::Mat half, flipped;
+    switch (mode)
+    {
+    case 1:
+        half = ioFrame(cv::Rect(0, 0, halfW, h));
+        cv::flip(half, flipped, 1);
+        flipped.copyTo(ioFrame(cv::Rect(halfW, 0, halfW, h)));
+        break;
+    case 2:
+        half = ioFrame(cv::Rect(halfW, 0, halfW, h));
+        cv::flip(half, flipped, 1);
+        flipped.copyTo(ioFrame(cv::Rect(0, 0, halfW, h)));
+        break;
+    case 3:
+        half = ioFrame(cv::Rect(0, 0, w, halfH));
+        cv::flip(half, flipped, 0);
+        flipped.copyTo(ioFrame(cv::Rect(0, halfH, w, halfH)));
+        break;
+    case 4:
+        half = ioFrame(cv::Rect(0, halfH, w, halfH));
+        cv::flip(half, flipped, 0);
+        flipped.copyTo(ioFrame(cv::Rect(0, 0, w, halfH)));
+        break;
+    }
+}
+
+void VideoFXModule::applyRotation(cv::Mat& ioFrame, int mode)
+{
+    if (mode == 0)
+        return;
+    switch (mode)
+    {
+    case 1:
+        cv::rotate(ioFrame, ioFrame, cv::ROTATE_90_CLOCKWISE);
+        break;
+    case 2:
+        cv::rotate(ioFrame, ioFrame, cv::ROTATE_180);
+        break;
+    case 3:
+        cv::rotate(ioFrame, ioFrame, cv::ROTATE_90_COUNTERCLOCKWISE);
+        break;
+    }
+}
+
+void VideoFXModule::applyScanlines(cv::Mat& ioFrame, float amount, int spacing)
+{
+    if (amount <= 0.0f)
+        return;
+    float darken = 1.0f - amount;
+    for (int y = 0; y < ioFrame.rows; y += spacing)
+        ioFrame.row(y) *= darken;
+}
+
+void VideoFXModule::applyDithering(cv::Mat& ioFrame, int levels)
+{
+    if (levels >= 256)
+        return;
+    float   step = 255.0f / (levels - 1);
+    cv::Mat lut(1, 256, CV_8U);
+    for (int i = 0; i < 256; i++)
+        lut.at<uchar>(i) = cv::saturate_cast<uchar>(std::round(i / step) * step);
+    cv::LUT(ioFrame, lut, ioFrame);
+}
+
+void VideoFXModule::applyChromaAberration(cv::Mat& ioFrame, float amount)
+{
+    if (amount <= 0.0f)
+        return;
+
+    // Handle both BGR (3 channel) and BGRA (4 channel) frames
+    cv::Mat alpha;
+    cv::Mat bgrFrame;
+    if (ioFrame.channels() == 4)
+    {
+        // Extract alpha channel and convert to BGR for processing
+        std::vector<cv::Mat> channels;
+        cv::split(ioFrame, channels);
+        alpha = channels[3].clone();
+        cv::merge(std::vector<cv::Mat>{channels[0], channels[1], channels[2]}, bgrFrame);
+    }
+    else if (ioFrame.channels() == 3)
+    {
+        bgrFrame = ioFrame;
+    }
+    else
+    {
+        // Unsupported format - skip
+        return;
+    }
+
+    std::vector<cv::Mat> channels;
+    cv::split(bgrFrame, channels);
+    int     shift = static_cast<int>(amount);
+    cv::Mat M_r = (cv::Mat_<float>(2, 3) << 1, 0, shift, 0, 1, 0);
+    cv::Mat M_b = (cv::Mat_<float>(2, 3) << 1, 0, -shift, 0, 1, 0);
+    cv::warpAffine(channels[2], channels[2], M_r, bgrFrame.size());
+    cv::warpAffine(channels[0], channels[0], M_b, bgrFrame.size());
+    cv::merge(channels, bgrFrame);
+
+    // Restore alpha channel if present
+    if (!alpha.empty())
+    {
+        std::vector<cv::Mat> finalChannels;
+        cv::split(bgrFrame, finalChannels);
+        finalChannels.push_back(alpha);
+        cv::merge(finalChannels, ioFrame);
+    }
+    else
+    {
+        ioFrame = bgrFrame;
+    }
+}
+
+void VideoFXModule::applyEdgeGlow(cv::Mat& ioFrame, float amount, float r, float g, float b)
+{
+    if (amount <= 0.0f)
+        return;
+    cv::Mat gray, edges;
+    cv::cvtColor(ioFrame, gray, cv::COLOR_BGR2GRAY);
+    cv::Canny(gray, edges, 50, 150);
+    cv::dilate(edges, edges, cv::Mat(), cv::Point(-1, -1), 2);
+    cv::Mat glow(ioFrame.size(), ioFrame.type(), cv::Scalar(b * 255, g * 255, r * 255));
+    cv::Mat mask;
+    cv::cvtColor(edges, mask, cv::COLOR_GRAY2BGR);
+    mask.convertTo(mask, CV_32F, 1.0 / 255.0);
+    cv::Mat glowBlended;
+    cv::multiply(glow, mask, glowBlended, 1.0, CV_8U);
+    cv::addWeighted(ioFrame, 1.0, glowBlended, amount, 0, ioFrame);
+}
+
+void VideoFXModule::applyZoomBlur(cv::Mat& ioFrame, float amount)
+{
+    if (amount <= 0.0f)
+        return;
+    cv::Mat blurred, accumulated = ioFrame.clone();
+    accumulated.convertTo(accumulated, CV_32F);
+    int   steps = static_cast<int>(amount * 10) + 1;
+    float cx = ioFrame.cols / 2.0f, cy = ioFrame.rows / 2.0f;
+    for (int i = 1; i <= steps; i++)
+    {
+        float   scale = 1.0f + (amount * 0.02f * i);
+        cv::Mat M = cv::getRotationMatrix2D(cv::Point2f(cx, cy), 0, scale);
+        cv::warpAffine(ioFrame, blurred, M, ioFrame.size());
+        cv::Mat temp;
+        blurred.convertTo(temp, CV_32F);
+        accumulated += temp;
+    }
+    accumulated /= (steps + 1);
+    accumulated.convertTo(ioFrame, CV_8U);
+}
+
 void VideoFXModule::run()
 {
     cv::Mat processedFrame;
@@ -552,6 +981,45 @@ void VideoFXModule::run()
         float cannyThresh2 = cannyThresh2Param ? cannyThresh2Param->load() : 150.0f;
         int   kaleidoscopeMode = kaleidoscopeModeParam ? kaleidoscopeModeParam->getIndex() : 0;
 
+        // === NEW PARAMETERS ===
+        float wetDryMix = wetDryMixParam ? wetDryMixParam->load() : 1.0f;
+        float gamma = gammaParam ? gammaParam->load() : 1.0f;
+        float levelsBlack = levelsBlackParam ? levelsBlackParam->load() : 0.0f;
+        float levelsWhite = levelsWhiteParam ? levelsWhiteParam->load() : 255.0f;
+        float levelsGamma = levelsGammaParam ? levelsGammaParam->load() : 1.0f;
+        bool  channelMixerEnable = channelMixerEnableParam ? channelMixerEnableParam->get() : false;
+        float mixRR = mixRRParam ? mixRRParam->load() : 1.0f;
+        float mixRG = mixRGParam ? mixRGParam->load() : 0.0f;
+        float mixRB = mixRBParam ? mixRBParam->load() : 0.0f;
+        float mixGR = mixGRParam ? mixGRParam->load() : 0.0f;
+        float mixGG = mixGGParam ? mixGGParam->load() : 1.0f;
+        float mixGB = mixGBParam ? mixGBParam->load() : 0.0f;
+        float mixBR = mixBRParam ? mixBRParam->load() : 0.0f;
+        float mixBG = mixBGParam ? mixBGParam->load() : 0.0f;
+        float mixBB = mixBBParam ? mixBBParam->load() : 1.0f;
+        float blendColorAmount = blendColorAmountParam ? blendColorAmountParam->load() : 0.0f;
+        float blendColorR = blendColorRParam ? blendColorRParam->load() : 1.0f;
+        float blendColorG = blendColorGParam ? blendColorGParam->load() : 0.0f;
+        float blendColorB = blendColorBParam ? blendColorBParam->load() : 0.0f;
+        int   blendMode = blendModeParam ? blendModeParam->getIndex() : 0;
+        bool  emboss = embossParam ? embossParam->get() : false;
+        float embossStrength = embossStrengthParam ? embossStrengthParam->load() : 1.0f;
+        float noiseAmount = noiseAmountParam ? noiseAmountParam->load() : 0.0f;
+        bool  solarize = solarizeParam ? solarizeParam->get() : false;
+        float solarizeThreshold = solarizeThresholdParam ? solarizeThresholdParam->load() : 128.0f;
+        int   mirrorMode = mirrorModeParam ? mirrorModeParam->getIndex() : 0;
+        int   rotationMode = rotationModeParam ? rotationModeParam->getIndex() : 0;
+        float edgeGlowAmount = edgeGlowAmountParam ? edgeGlowAmountParam->load() : 0.0f;
+        float edgeGlowR = edgeGlowRParam ? edgeGlowRParam->load() : 0.0f;
+        float edgeGlowG = edgeGlowGParam ? edgeGlowGParam->load() : 1.0f;
+        float edgeGlowB = edgeGlowBParam ? edgeGlowBParam->load() : 1.0f;
+        float scanlineAmount = scanlineAmountParam ? scanlineAmountParam->load() : 0.0f;
+        int   scanlineSpacing = scanlineSpacingParam ? scanlineSpacingParam->get() : 2;
+        bool  ditherEnable = ditherEnableParam ? ditherEnableParam->get() : false;
+        int   ditherLevels = ditherLevelsParam ? ditherLevelsParam->get() : 4;
+        float chromaAberration = chromaAberrationParam ? chromaAberrationParam->load() : 0.0f;
+        float zoomBlurAmount = zoomBlurAmountParam ? zoomBlurAmountParam->load() : 0.0f;
+
         const bool useGpu = useGpuParam ? useGpuParam->get() : false;
 #if defined(WITH_CUDA_SUPPORT)
         const bool gpuAvailable = CudaDeviceCountCache::isAvailable();
@@ -625,30 +1093,51 @@ void VideoFXModule::run()
                 if (!gpuInputReady)
                     gpuFrame.upload(frame);
 
-                // Color Adjustments
+                // === COLOR ===
                 applyBrightnessContrast_gpu(gpuFrame, brightness, contrast);
+                applyGamma_gpu(gpuFrame, gamma);
                 applyTemperature_gpu(gpuFrame, temperature);
                 applySepia_gpu(gpuFrame, sepia);
                 applySaturationHue_gpu(gpuFrame, saturation, hueShift);
                 applyRgbGain_gpu(gpuFrame, gainR, gainG, gainB);
+                applyLevels_gpu(gpuFrame, levelsBlack, levelsWhite, levelsGamma);
+                if (channelMixerEnable)
+                    applyChannelMixer_gpu(
+                        gpuFrame, mixRR, mixRG, mixRB, mixGR, mixGG, mixGB, mixBR, mixBG, mixBB);
+                applyBlendColor_gpu(
+                    gpuFrame, blendColorAmount, blendColorR, blendColorG, blendColorB, blendMode);
                 applyPosterize_gpu(gpuFrame, posterizeLevels);
 
-                // Monochrome & Edge Effects
+                // === FILTERS ===
                 applyGrayscale_gpu(gpuFrame, grayscale);
-                // Canny is CPU-only fallback; skip it in GPU mode
                 if (thresholdEnable)
-                {
                     applyThreshold_gpu(gpuFrame, thresholdLevel);
-                }
                 applyInvert_gpu(gpuFrame, invert);
-
-                // Geometric & Spatial Filters
-                applyFlip_gpu(gpuFrame, flipH, flipV);
-                applyVignette_gpu(gpuFrame, vignetteAmount, vignetteSize);
-                applyPixelate_gpu(gpuFrame, pixelateSize);
+                if (solarize)
+                    applySolarize_gpu(gpuFrame, solarizeThreshold);
+                if (emboss)
+                    applyEmboss_gpu(gpuFrame, embossStrength);
+                applyNoise_gpu(gpuFrame, noiseAmount);
                 applyBlur_gpu(gpuFrame, blur);
                 applySharpen_gpu(gpuFrame, sharpen);
+
+                // === GEOMETRIC ===
+                applyFlip_gpu(gpuFrame, flipH, flipV);
+                applyMirror_gpu(gpuFrame, mirrorMode);
+                applyRotation_gpu(gpuFrame, rotationMode);
+                applyVignette_gpu(gpuFrame, vignetteAmount, vignetteSize);
+                applyPixelate_gpu(gpuFrame, pixelateSize);
                 applyKaleidoscope_gpu(gpuFrame, kaleidoscopeMode);
+
+                // === STYLIZE ===
+                applyScanlines_gpu(gpuFrame, scanlineAmount, scanlineSpacing);
+                if (ditherEnable)
+                    applyDithering_gpu(gpuFrame, ditherLevels);
+                applyEdgeGlow_gpu(gpuFrame, edgeGlowAmount, edgeGlowR, edgeGlowG, edgeGlowB);
+
+                // === DISTORTION ===
+                applyChromaAberration_gpu(gpuFrame, chromaAberration);
+                applyZoomBlur_gpu(gpuFrame, zoomBlurAmount);
 
                 // Publish result via GPU manager
                 juce::uint32 myId = storedLogicalId;
@@ -658,6 +1147,11 @@ void VideoFXModule::run()
                 }
 
                 gpuFrame.download(processedFrame);
+
+                // === WET/DRY MIX ===
+                if (wetDryMix < 1.0f)
+                    cv::addWeighted(
+                        frame, 1.0f - wetDryMix, processedFrame, wetDryMix, 0, processedFrame);
             }
             catch (const cv::Exception& e)
             {
@@ -671,35 +1165,61 @@ void VideoFXModule::run()
         else
         {
         cpu_path_label:
+            cv::Mat originalFrame = frame.clone();
             processedFrame = frame.clone();
 
-            // Color Adjustments
+            // === COLOR ===
             applyBrightnessContrast(processedFrame, brightness, contrast);
+            applyGamma(processedFrame, gamma);
             applyTemperature(processedFrame, temperature);
             applySepia(processedFrame, sepia);
             applySaturationHue(processedFrame, saturation, hueShift);
             applyRgbGain(processedFrame, gainR, gainG, gainB);
+            applyLevels(processedFrame, levelsBlack, levelsWhite, levelsGamma);
+            if (channelMixerEnable)
+                applyChannelMixer(
+                    processedFrame, mixRR, mixRG, mixRB, mixGR, mixGG, mixGB, mixBR, mixBG, mixBB);
+            applyBlendColor(
+                processedFrame, blendColorAmount, blendColorR, blendColorG, blendColorB, blendMode);
             applyPosterize(processedFrame, posterizeLevels);
 
-            // Monochrome & Edge Effects
+            // === FILTERS ===
             applyGrayscale(processedFrame, grayscale);
             if (cannyEnable)
-            {
                 applyCanny(processedFrame, cannyThresh1, cannyThresh2);
-            }
             else if (thresholdEnable)
-            {
                 applyThreshold(processedFrame, thresholdLevel);
-            }
             applyInvert(processedFrame, invert);
-
-            // Geometric & Spatial Filters
-            applyFlip(processedFrame, flipH, flipV);
-            applyVignette(processedFrame, vignetteAmount, vignetteSize);
-            applyPixelate(processedFrame, pixelateSize);
+            if (solarize)
+                applySolarize(processedFrame, solarizeThreshold);
+            if (emboss)
+                applyEmboss(processedFrame, embossStrength);
+            applyNoise(processedFrame, noiseAmount);
             applyBlur(processedFrame, blur);
             applySharpen(processedFrame, sharpen);
+
+            // === GEOMETRIC ===
+            applyFlip(processedFrame, flipH, flipV);
+            applyMirror(processedFrame, mirrorMode);
+            applyRotation(processedFrame, rotationMode);
+            applyVignette(processedFrame, vignetteAmount, vignetteSize);
+            applyPixelate(processedFrame, pixelateSize);
             applyKaleidoscope(processedFrame, kaleidoscopeMode);
+
+            // === STYLIZE ===
+            applyScanlines(processedFrame, scanlineAmount, scanlineSpacing);
+            if (ditherEnable)
+                applyDithering(processedFrame, ditherLevels);
+            applyEdgeGlow(processedFrame, edgeGlowAmount, edgeGlowR, edgeGlowG, edgeGlowB);
+
+            // === DISTORTION ===
+            applyChromaAberration(processedFrame, chromaAberration);
+            applyZoomBlur(processedFrame, zoomBlurAmount);
+
+            // === WET/DRY MIX ===
+            if (wetDryMix < 1.0f)
+                cv::addWeighted(
+                    originalFrame, 1.0f - wetDryMix, processedFrame, wetDryMix, 0, processedFrame);
         }
 
         juce::uint32 myLogicalId = storedLogicalId;
@@ -850,6 +1370,22 @@ void VideoFXModule::drawParametersInNode(
         ThemeText(text.toRawUTF8(), colour);
     };
 
+    // === WORKAROUND FOR IMNODES WIDGET BLEEDING ===
+    // Widgets like CollapsingHeader, TreeNodeEx, SliderFloat use WorkRect.Max.x
+    // which is the entire canvas in ImNodes, causing them to extend beyond node bounds.
+    // Solution: Temporarily constrain WorkRect and ContentRegionRect to node width.
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float  cursorX = ImGui::GetCursorPosX();
+    const float  nodeRightEdge = cursorX + itemWidth;
+
+    // Save original values
+    const float savedWorkRectMaxX = window->WorkRect.Max.x;
+    const float savedContentRegionMaxX = window->ContentRegionRect.Max.x;
+
+    // Constrain to node width
+    window->WorkRect.Max.x = juce::jmin(savedWorkRectMaxX, nodeRightEdge);
+    window->ContentRegionRect.Max.x = juce::jmin(savedContentRegionMaxX, nodeRightEdge);
+
     ImGui::PushItemWidth(itemWidth);
 
     // --- FEATURE: RESET BUTTON ---
@@ -857,13 +1393,72 @@ void VideoFXModule::drawParametersInNode(
     {
         // Reset all parameters to their default values
         const char* paramIds[] = {
-            "useGpu",         "zoomLevel",       "brightness",     "contrast",
-            "saturation",     "hueShift",        "gainRed",        "gainGreen",
-            "gainBlue",       "sepia",           "temperature",    "sharpen",
-            "blur",           "grayscale",       "invert",         "flipH",
-            "flipV",          "thresholdEnable", "thresholdLevel", "posterizeLevels",
-            "vignetteAmount", "vignetteSize",    "pixelateSize",   "cannyEnable",
-            "cannyThresh1",   "cannyThresh2",    "kaleidoscope"};
+            // Original
+            "useGpu",
+            "zoomLevel",
+            "brightness",
+            "contrast",
+            "saturation",
+            "hueShift",
+            "gainRed",
+            "gainGreen",
+            "gainBlue",
+            "sepia",
+            "temperature",
+            "sharpen",
+            "blur",
+            "grayscale",
+            "invert",
+            "flipH",
+            "flipV",
+            "thresholdEnable",
+            "thresholdLevel",
+            "posterizeLevels",
+            "vignetteAmount",
+            "vignetteSize",
+            "pixelateSize",
+            "cannyEnable",
+            "cannyThresh1",
+            "cannyThresh2",
+            "kaleidoscope",
+            // NEW PARAMETERS
+            "wetDryMix",
+            "gamma",
+            "levelsBlack",
+            "levelsWhite",
+            "levelsGamma",
+            "channelMixerEnable",
+            "mixRR",
+            "mixRG",
+            "mixRB",
+            "mixGR",
+            "mixGG",
+            "mixGB",
+            "mixBR",
+            "mixBG",
+            "mixBB",
+            "blendColorAmount",
+            "blendColorR",
+            "blendColorG",
+            "blendColorB",
+            "blendMode",
+            "emboss",
+            "embossStrength",
+            "noiseAmount",
+            "solarize",
+            "solarizeThreshold",
+            "mirror",
+            "rotation",
+            "edgeGlowAmount",
+            "edgeGlowR",
+            "edgeGlowG",
+            "edgeGlowB",
+            "scanlineAmount",
+            "scanlineSpacing",
+            "ditherEnable",
+            "ditherLevels",
+            "chromaAberration",
+            "zoomBlurAmount"};
 
         for (const char* paramId : paramIds)
         {
@@ -959,489 +1554,739 @@ void VideoFXModule::drawParametersInNode(
         juce::String::formatted("Output ID: %d", (int)getLogicalId()),
         theme.modules.videofx_section_header);
 
-    themeText("Color Adjustments", theme.modules.videofx_section_subheader);
-
-    // Color sliders
-    bool        brightnessMod = isParamModulated("brightness");
-    const float brightnessDefault = brightnessParam ? brightnessParam->load() : 0.0f;
-    float       brightness =
-        brightnessMod ? getLiveParamValue("brightness", brightnessDefault) : brightnessDefault;
-    if (brightnessMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Brightness", &brightness, -100.0f, 100.0f))
+    // === COLOR ADJUSTMENTS (Collapsible) ===
+    ImGui::SetNextItemOpen(true, ImGuiCond_Once); // Start expanded
+    if (ImGui::TreeNodeEx(
+            "Color Adjustments", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed))
     {
+        // Color sliders
+        bool        brightnessMod = isParamModulated("brightness");
+        const float brightnessDefault = brightnessParam ? brightnessParam->load() : 0.0f;
+        float       brightness =
+            brightnessMod ? getLiveParamValue("brightness", brightnessDefault) : brightnessDefault;
+        if (brightnessMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Brightness", &brightness, -100.0f, 100.0f))
+        {
+            if (!brightnessMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("brightness")))
+                    *p = brightness;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !brightnessMod)
+            onModificationEnded();
         if (!brightnessMod)
-        {
-            if (auto* p =
-                    dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("brightness")))
-                *p = brightness;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !brightnessMod)
-        onModificationEnded();
-    if (!brightnessMod)
-        adjustParamOnWheel(apvts.getParameter("brightness"), "brightness", brightness);
-    if (brightnessMod)
-        ImGui::EndDisabled();
+            adjustParamOnWheel(apvts.getParameter("brightness"), "brightness", brightness);
+        if (brightnessMod)
+            ImGui::EndDisabled();
 
-    bool        contrastMod = isParamModulated("contrast");
-    const float contrastDefault = contrastParam ? contrastParam->load() : 1.0f;
-    float contrast = contrastMod ? getLiveParamValue("contrast", contrastDefault) : contrastDefault;
-    if (contrastMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Contrast", &contrast, 0.0f, 3.0f))
-    {
+        bool        contrastMod = isParamModulated("contrast");
+        const float contrastDefault = contrastParam ? contrastParam->load() : 1.0f;
+        float       contrast =
+            contrastMod ? getLiveParamValue("contrast", contrastDefault) : contrastDefault;
+        if (contrastMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Contrast", &contrast, 0.0f, 3.0f))
+        {
+            if (!contrastMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("contrast")))
+                    *p = contrast;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !contrastMod)
+            onModificationEnded();
         if (!contrastMod)
-        {
-            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("contrast")))
-                *p = contrast;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !contrastMod)
-        onModificationEnded();
-    if (!contrastMod)
-        adjustParamOnWheel(apvts.getParameter("contrast"), "contrast", contrast);
-    if (contrastMod)
-        ImGui::EndDisabled();
+            adjustParamOnWheel(apvts.getParameter("contrast"), "contrast", contrast);
+        if (contrastMod)
+            ImGui::EndDisabled();
 
-    bool        saturationMod = isParamModulated("saturation");
-    const float saturationDefault = saturationParam ? saturationParam->load() : 1.0f;
-    float       saturation =
-        saturationMod ? getLiveParamValue("saturation", saturationDefault) : saturationDefault;
-    if (saturationMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Saturation", &saturation, 0.0f, 3.0f))
-    {
+        bool        saturationMod = isParamModulated("saturation");
+        const float saturationDefault = saturationParam ? saturationParam->load() : 1.0f;
+        float       saturation =
+            saturationMod ? getLiveParamValue("saturation", saturationDefault) : saturationDefault;
+        if (saturationMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Saturation", &saturation, 0.0f, 3.0f))
+        {
+            if (!saturationMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("saturation")))
+                    *p = saturation;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !saturationMod)
+            onModificationEnded();
         if (!saturationMod)
-        {
-            if (auto* p =
-                    dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("saturation")))
-                *p = saturation;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !saturationMod)
-        onModificationEnded();
-    if (!saturationMod)
-        adjustParamOnWheel(apvts.getParameter("saturation"), "saturation", saturation);
-    if (saturationMod)
-        ImGui::EndDisabled();
+            adjustParamOnWheel(apvts.getParameter("saturation"), "saturation", saturation);
+        if (saturationMod)
+            ImGui::EndDisabled();
 
-    bool        hueShiftMod = isParamModulated("hueShift");
-    const float hueDefault = hueShiftParam ? hueShiftParam->load() : 0.0f;
-    float       hueShift = hueShiftMod ? getLiveParamValue("hueShift", hueDefault) : hueDefault;
-    if (hueShiftMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Hue Shift", &hueShift, -180.0f, 180.0f))
-    {
+        bool        hueShiftMod = isParamModulated("hueShift");
+        const float hueDefault = hueShiftParam ? hueShiftParam->load() : 0.0f;
+        float       hueShift = hueShiftMod ? getLiveParamValue("hueShift", hueDefault) : hueDefault;
+        if (hueShiftMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Hue Shift", &hueShift, -180.0f, 180.0f))
+        {
+            if (!hueShiftMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("hueShift")))
+                    *p = hueShift;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !hueShiftMod)
+            onModificationEnded();
         if (!hueShiftMod)
-        {
-            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("hueShift")))
-                *p = hueShift;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !hueShiftMod)
-        onModificationEnded();
-    if (!hueShiftMod)
-        adjustParamOnWheel(apvts.getParameter("hueShift"), "hueShift", hueShift);
-    if (hueShiftMod)
-        ImGui::EndDisabled();
+            adjustParamOnWheel(apvts.getParameter("hueShift"), "hueShift", hueShift);
+        if (hueShiftMod)
+            ImGui::EndDisabled();
 
-    bool        gainRedMod = isParamModulated("gainRed");
-    const float gainRDefault = gainRedParam ? gainRedParam->load() : 1.0f;
-    float       gainR = gainRedMod ? getLiveParamValue("gainRed", gainRDefault) : gainRDefault;
-    if (gainRedMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Red Gain", &gainR, 0.0f, 2.0f))
-    {
+        bool        gainRedMod = isParamModulated("gainRed");
+        const float gainRDefault = gainRedParam ? gainRedParam->load() : 1.0f;
+        float       gainR = gainRedMod ? getLiveParamValue("gainRed", gainRDefault) : gainRDefault;
+        if (gainRedMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Red Gain", &gainR, 0.0f, 2.0f))
+        {
+            if (!gainRedMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gainRed")))
+                    *p = gainR;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !gainRedMod)
+            onModificationEnded();
         if (!gainRedMod)
-        {
-            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gainRed")))
-                *p = gainR;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !gainRedMod)
-        onModificationEnded();
-    if (!gainRedMod)
-        adjustParamOnWheel(apvts.getParameter("gainRed"), "gainRed", gainR);
-    if (gainRedMod)
-        ImGui::EndDisabled();
+            adjustParamOnWheel(apvts.getParameter("gainRed"), "gainRed", gainR);
+        if (gainRedMod)
+            ImGui::EndDisabled();
 
-    bool        gainGreenMod = isParamModulated("gainGreen");
-    const float gainGDefault = gainGreenParam ? gainGreenParam->load() : 1.0f;
-    float       gainG = gainGreenMod ? getLiveParamValue("gainGreen", gainGDefault) : gainGDefault;
-    if (gainGreenMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Green Gain", &gainG, 0.0f, 2.0f))
-    {
+        bool        gainGreenMod = isParamModulated("gainGreen");
+        const float gainGDefault = gainGreenParam ? gainGreenParam->load() : 1.0f;
+        float gainG = gainGreenMod ? getLiveParamValue("gainGreen", gainGDefault) : gainGDefault;
+        if (gainGreenMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Green Gain", &gainG, 0.0f, 2.0f))
+        {
+            if (!gainGreenMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gainGreen")))
+                    *p = gainG;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !gainGreenMod)
+            onModificationEnded();
         if (!gainGreenMod)
-        {
-            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gainGreen")))
-                *p = gainG;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !gainGreenMod)
-        onModificationEnded();
-    if (!gainGreenMod)
-        adjustParamOnWheel(apvts.getParameter("gainGreen"), "gainGreen", gainG);
-    if (gainGreenMod)
-        ImGui::EndDisabled();
+            adjustParamOnWheel(apvts.getParameter("gainGreen"), "gainGreen", gainG);
+        if (gainGreenMod)
+            ImGui::EndDisabled();
 
-    bool        gainBlueMod = isParamModulated("gainBlue");
-    const float gainBDefault = gainBlueParam ? gainBlueParam->load() : 1.0f;
-    float       gainB = gainBlueMod ? getLiveParamValue("gainBlue", gainBDefault) : gainBDefault;
-    if (gainBlueMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Blue Gain", &gainB, 0.0f, 2.0f))
-    {
+        bool        gainBlueMod = isParamModulated("gainBlue");
+        const float gainBDefault = gainBlueParam ? gainBlueParam->load() : 1.0f;
+        float gainB = gainBlueMod ? getLiveParamValue("gainBlue", gainBDefault) : gainBDefault;
+        if (gainBlueMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Blue Gain", &gainB, 0.0f, 2.0f))
+        {
+            if (!gainBlueMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gainBlue")))
+                    *p = gainB;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !gainBlueMod)
+            onModificationEnded();
         if (!gainBlueMod)
+            adjustParamOnWheel(apvts.getParameter("gainBlue"), "gainBlue", gainB);
+        if (gainBlueMod)
+            ImGui::EndDisabled();
+
+        bool sepiaMod = isParamModulated("sepia");
+        if (sepiaMod)
+            ImGui::BeginDisabled();
+        bool sepia = sepiaParam ? sepiaParam->get() : false;
+        if (ImGui::Checkbox("Sepia", &sepia))
         {
-            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gainBlue")))
-                *p = gainB;
+            if (!sepiaMod && sepiaParam)
+                *sepiaParam = sepia;
+            onModificationEnded();
         }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !gainBlueMod)
-        onModificationEnded();
-    if (!gainBlueMod)
-        adjustParamOnWheel(apvts.getParameter("gainBlue"), "gainBlue", gainB);
-    if (gainBlueMod)
-        ImGui::EndDisabled();
+        if (sepiaMod)
+            ImGui::EndDisabled();
 
-    bool sepiaMod = isParamModulated("sepia");
-    if (sepiaMod)
-        ImGui::BeginDisabled();
-    bool sepia = sepiaParam ? sepiaParam->get() : false;
-    if (ImGui::Checkbox("Sepia", &sepia))
-    {
-        if (!sepiaMod && sepiaParam)
-            *sepiaParam = sepia;
-        onModificationEnded();
-    }
-    if (sepiaMod)
-        ImGui::EndDisabled();
-
-    bool        temperatureMod = isParamModulated("temperature");
-    const float temperatureDefault = temperatureParam ? temperatureParam->load() : 0.0f;
-    float       temperature =
-        temperatureMod ? getLiveParamValue("temperature", temperatureDefault) : temperatureDefault;
-    if (temperatureMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Temperature", &temperature, -1.0f, 1.0f))
-    {
+        bool        temperatureMod = isParamModulated("temperature");
+        const float temperatureDefault = temperatureParam ? temperatureParam->load() : 0.0f;
+        float temperature = temperatureMod ? getLiveParamValue("temperature", temperatureDefault)
+                                           : temperatureDefault;
+        if (temperatureMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Temperature", &temperature, -1.0f, 1.0f))
+        {
+            if (!temperatureMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("temperature")))
+                    *p = temperature;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !temperatureMod)
+            onModificationEnded();
         if (!temperatureMod)
-        {
-            if (auto* p =
-                    dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("temperature")))
-                *p = temperature;
-        }
+            adjustParamOnWheel(apvts.getParameter("temperature"), "temperature", temperature);
+        if (temperatureMod)
+            ImGui::EndDisabled();
+
+        ImGui::TreePop(); // End Color Adjustments
     }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !temperatureMod)
-        onModificationEnded();
-    if (!temperatureMod)
-        adjustParamOnWheel(apvts.getParameter("temperature"), "temperature", temperature);
-    if (temperatureMod)
-        ImGui::EndDisabled();
 
-    themeText("Filters & Effects", theme.modules.videofx_section_subheader);
-
-    // Filter sliders
-    bool        sharpenMod = isParamModulated("sharpen");
-    const float sharpenDefault = sharpenParam ? sharpenParam->load() : 0.0f;
-    float sharpen = sharpenMod ? getLiveParamValue("sharpen", sharpenDefault) : sharpenDefault;
-    if (sharpenMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Sharpen", &sharpen, 0.0f, 2.0f))
+    // === FILTERS & EFFECTS (Collapsible) ===
+    ImGui::SetNextItemOpen(false, ImGuiCond_Once); // Start collapsed
+    if (ImGui::TreeNodeEx(
+            "Filters & Effects", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed))
     {
+        // Filter sliders
+        bool        sharpenMod = isParamModulated("sharpen");
+        const float sharpenDefault = sharpenParam ? sharpenParam->load() : 0.0f;
+        float sharpen = sharpenMod ? getLiveParamValue("sharpen", sharpenDefault) : sharpenDefault;
+        if (sharpenMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Sharpen", &sharpen, 0.0f, 2.0f))
+        {
+            if (!sharpenMod)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("sharpen")))
+                    *p = sharpen;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !sharpenMod)
+            onModificationEnded();
         if (!sharpenMod)
-        {
-            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("sharpen")))
-                *p = sharpen;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !sharpenMod)
-        onModificationEnded();
-    if (!sharpenMod)
-        adjustParamOnWheel(apvts.getParameter("sharpen"), "sharpen", sharpen);
-    if (sharpenMod)
-        ImGui::EndDisabled();
+            adjustParamOnWheel(apvts.getParameter("sharpen"), "sharpen", sharpen);
+        if (sharpenMod)
+            ImGui::EndDisabled();
 
-    bool        blurMod = isParamModulated("blur");
-    const float blurDefault = blurParam ? blurParam->load() : 0.0f;
-    float       blur = blurMod ? getLiveParamValue("blur", blurDefault) : blurDefault;
-    if (blurMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Blur", &blur, 0.0f, 20.0f))
-    {
+        bool        blurMod = isParamModulated("blur");
+        const float blurDefault = blurParam ? blurParam->load() : 0.0f;
+        float       blur = blurMod ? getLiveParamValue("blur", blurDefault) : blurDefault;
+        if (blurMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat("Blur", &blur, 0.0f, 20.0f))
+        {
+            if (!blurMod)
+            {
+                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("blur")))
+                    *p = blur;
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !blurMod)
+            onModificationEnded();
         if (!blurMod)
+            adjustParamOnWheel(apvts.getParameter("blur"), "blur", blur);
+        if (blurMod)
+            ImGui::EndDisabled();
+
+        // Effect checkboxes
+        bool grayscale = grayscaleParam ? grayscaleParam->get() : false;
+        if (ImGui::Checkbox("Grayscale", &grayscale))
         {
-            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("blur")))
-                *p = blur;
+            if (grayscaleParam)
+                *grayscaleParam = grayscale;
+            onModificationEnded();
         }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !blurMod)
-        onModificationEnded();
-    if (!blurMod)
-        adjustParamOnWheel(apvts.getParameter("blur"), "blur", blur);
-    if (blurMod)
-        ImGui::EndDisabled();
 
-    // Effect checkboxes
-    bool grayscale = grayscaleParam ? grayscaleParam->get() : false;
-    if (ImGui::Checkbox("Grayscale", &grayscale))
-    {
-        if (grayscaleParam)
-            *grayscaleParam = grayscale;
-        onModificationEnded();
-    }
-
-    bool invert = invertParam ? invertParam->get() : false;
-    if (ImGui::Checkbox("Invert", &invert))
-    {
-        if (invertParam)
-            *invertParam = invert;
-        onModificationEnded();
-    }
-
-    bool flipH = flipHorizontalParam ? flipHorizontalParam->get() : false;
-    if (ImGui::Checkbox("Flip H", &flipH))
-    {
-        if (flipHorizontalParam)
-            *flipHorizontalParam = flipH;
-        onModificationEnded();
-    }
-
-    bool flipV = flipVerticalParam ? flipVerticalParam->get() : false;
-    if (ImGui::Checkbox("Flip V", &flipV))
-    {
-        if (flipVerticalParam)
-            *flipVerticalParam = flipV;
-        onModificationEnded();
-    }
-
-    themeText("More Filters", theme.modules.videofx_section_subheader);
-
-    // Threshold Effect
-    bool threshEnable = thresholdEnableParam ? thresholdEnableParam->get() : false;
-    if (ImGui::Checkbox("Threshold", &threshEnable))
-    {
-        if (thresholdEnableParam)
-            *thresholdEnableParam = threshEnable;
-        onModificationEnded();
-    }
-
-    if (threshEnable)
-    {
-        ImGui::SameLine();
-        bool  threshLevelMod = isParamModulated("thresholdLevel");
-        float threshLevel =
-            threshLevelMod
-                ? getLiveParamValue(
-                      "thresholdLevel", thresholdLevelParam ? thresholdLevelParam->load() : 127.0f)
-                : (thresholdLevelParam ? thresholdLevelParam->load() : 127.0f);
-        if (threshLevelMod)
-            ImGui::BeginDisabled();
-        if (ImGui::SliderFloat("##level", &threshLevel, 0.0f, 255.0f, "%.0f"))
+        bool invert = invertParam ? invertParam->get() : false;
+        if (ImGui::Checkbox("Invert", &invert))
         {
+            if (invertParam)
+                *invertParam = invert;
+            onModificationEnded();
+        }
+
+        bool flipH = flipHorizontalParam ? flipHorizontalParam->get() : false;
+        if (ImGui::Checkbox("Flip H", &flipH))
+        {
+            if (flipHorizontalParam)
+                *flipHorizontalParam = flipH;
+            onModificationEnded();
+        }
+
+        bool flipV = flipVerticalParam ? flipVerticalParam->get() : false;
+        if (ImGui::Checkbox("Flip V", &flipV))
+        {
+            if (flipVerticalParam)
+                *flipVerticalParam = flipV;
+            onModificationEnded();
+        }
+
+        ImGui::TreePop(); // End Filters & Effects
+    }
+
+    // === MORE FILTERS (Collapsible) ===
+    ImGui::SetNextItemOpen(false, ImGuiCond_Once); // Start collapsed
+    if (ImGui::TreeNodeEx(
+            "More Filters", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed))
+    {
+        // Threshold Effect
+        bool threshEnable = thresholdEnableParam ? thresholdEnableParam->get() : false;
+        if (ImGui::Checkbox("Threshold", &threshEnable))
+        {
+            if (thresholdEnableParam)
+                *thresholdEnableParam = threshEnable;
+            onModificationEnded();
+        }
+
+        if (threshEnable)
+        {
+            ImGui::SameLine();
+            bool  threshLevelMod = isParamModulated("thresholdLevel");
+            float threshLevel =
+                threshLevelMod ? getLiveParamValue(
+                                     "thresholdLevel",
+                                     thresholdLevelParam ? thresholdLevelParam->load() : 127.0f)
+                               : (thresholdLevelParam ? thresholdLevelParam->load() : 127.0f);
+            if (threshLevelMod)
+                ImGui::BeginDisabled();
+            if (ImGui::SliderFloat("##level", &threshLevel, 0.0f, 255.0f, "%.0f"))
+            {
+                if (!threshLevelMod)
+                {
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("thresholdLevel")))
+                        *p = threshLevel;
+                }
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit() && !threshLevelMod)
+                onModificationEnded();
             if (!threshLevelMod)
-            {
-                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
-                        apvts.getParameter("thresholdLevel")))
-                    *p = threshLevel;
-            }
+                adjustParamOnWheel(
+                    apvts.getParameter("thresholdLevel"), "thresholdLevel", threshLevel);
+            if (threshLevelMod)
+                ImGui::EndDisabled();
         }
-        if (ImGui::IsItemDeactivatedAfterEdit() && !threshLevelMod)
-            onModificationEnded();
-        if (!threshLevelMod)
-            adjustParamOnWheel(apvts.getParameter("thresholdLevel"), "thresholdLevel", threshLevel);
-        if (threshLevelMod)
-            ImGui::EndDisabled();
-    }
 
-    // Posterize
-    bool posterizeMod = isParamModulated("posterizeLevels");
-    int  posterizeLevels = posterizeLevelsParam ? posterizeLevelsParam->get() : 16;
-    if (posterizeMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderInt("Posterize", &posterizeLevels, 2, 16))
-    {
-        if (!posterizeMod && posterizeLevelsParam)
-            *posterizeLevelsParam = posterizeLevels;
-        onModificationEnded();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Reduces the number of colors.\nLower values = stronger effect.");
-    if (!posterizeMod)
-        adjustParamOnWheel(
-            apvts.getParameter("posterizeLevels"), "posterizeLevels", (float)posterizeLevels);
-    if (posterizeMod)
-        ImGui::EndDisabled();
-
-    // Pixelate
-    bool pixelateMod = isParamModulated("pixelateSize");
-    int  pixelateSize = pixelateBlockSizeParam ? pixelateBlockSizeParam->get() : 1;
-    if (pixelateMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderInt("Pixelate", &pixelateSize, 1, 128))
-    {
-        if (!pixelateMod && pixelateBlockSizeParam)
-            *pixelateBlockSizeParam = pixelateSize;
-        onModificationEnded();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Creates a mosaic effect.\nHigher values = larger blocks.");
-    if (!pixelateMod)
-        adjustParamOnWheel(apvts.getParameter("pixelateSize"), "pixelateSize", (float)pixelateSize);
-    if (pixelateMod)
-        ImGui::EndDisabled();
-
-    // Edge Detection (Canny)
-    bool cannyEnable = cannyEnableParam ? cannyEnableParam->get() : false;
-    if (ImGui::Checkbox("Edge Detect", &cannyEnable))
-    {
-        if (cannyEnableParam)
-            *cannyEnableParam = cannyEnable;
-        onModificationEnded();
-    }
-
-    if (cannyEnable)
-    {
-        bool  cannyTh1Mod = isParamModulated("cannyThresh1");
-        float cannyTh1 =
-            cannyTh1Mod ? getLiveParamValue(
-                              "cannyThresh1", cannyThresh1Param ? cannyThresh1Param->load() : 50.0f)
-                        : (cannyThresh1Param ? cannyThresh1Param->load() : 50.0f);
-        if (cannyTh1Mod)
+        // Posterize
+        bool posterizeMod = isParamModulated("posterizeLevels");
+        int  posterizeLevels = posterizeLevelsParam ? posterizeLevelsParam->get() : 16;
+        if (posterizeMod)
             ImGui::BeginDisabled();
-        if (ImGui::SliderFloat("Canny Thresh 1", &cannyTh1, 0.0f, 255.0f))
+        if (ImGui::SliderInt("Posterize", &posterizeLevels, 2, 16))
         {
+            if (!posterizeMod && posterizeLevelsParam)
+                *posterizeLevelsParam = posterizeLevels;
+            onModificationEnded();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Reduces the number of colors.\nLower values = stronger effect.");
+        if (!posterizeMod)
+            adjustParamOnWheel(
+                apvts.getParameter("posterizeLevels"), "posterizeLevels", (float)posterizeLevels);
+        if (posterizeMod)
+            ImGui::EndDisabled();
+
+        // Pixelate
+        bool pixelateMod = isParamModulated("pixelateSize");
+        int  pixelateSize = pixelateBlockSizeParam ? pixelateBlockSizeParam->get() : 1;
+        if (pixelateMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderInt("Pixelate", &pixelateSize, 1, 128))
+        {
+            if (!pixelateMod && pixelateBlockSizeParam)
+                *pixelateBlockSizeParam = pixelateSize;
+            onModificationEnded();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Creates a mosaic effect.\nHigher values = larger blocks.");
+        if (!pixelateMod)
+            adjustParamOnWheel(
+                apvts.getParameter("pixelateSize"), "pixelateSize", (float)pixelateSize);
+        if (pixelateMod)
+            ImGui::EndDisabled();
+
+        // Edge Detection (Canny)
+        bool cannyEnable = cannyEnableParam ? cannyEnableParam->get() : false;
+        if (ImGui::Checkbox("Edge Detect", &cannyEnable))
+        {
+            if (cannyEnableParam)
+                *cannyEnableParam = cannyEnable;
+            onModificationEnded();
+        }
+
+        if (cannyEnable)
+        {
+            bool  cannyTh1Mod = isParamModulated("cannyThresh1");
+            float cannyTh1 =
+                cannyTh1Mod
+                    ? getLiveParamValue(
+                          "cannyThresh1", cannyThresh1Param ? cannyThresh1Param->load() : 50.0f)
+                    : (cannyThresh1Param ? cannyThresh1Param->load() : 50.0f);
+            if (cannyTh1Mod)
+                ImGui::BeginDisabled();
+            if (ImGui::SliderFloat("Canny Thresh 1", &cannyTh1, 0.0f, 255.0f))
+            {
+                if (!cannyTh1Mod)
+                {
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("cannyThresh1")))
+                        *p = cannyTh1;
+                }
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit() && !cannyTh1Mod)
+                onModificationEnded();
             if (!cannyTh1Mod)
-            {
-                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
-                        apvts.getParameter("cannyThresh1")))
-                    *p = cannyTh1;
-            }
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit() && !cannyTh1Mod)
-            onModificationEnded();
-        if (!cannyTh1Mod)
-            adjustParamOnWheel(apvts.getParameter("cannyThresh1"), "cannyThresh1", cannyTh1);
-        if (cannyTh1Mod)
-            ImGui::EndDisabled();
+                adjustParamOnWheel(apvts.getParameter("cannyThresh1"), "cannyThresh1", cannyTh1);
+            if (cannyTh1Mod)
+                ImGui::EndDisabled();
 
-        bool  cannyTh2Mod = isParamModulated("cannyThresh2");
-        float cannyTh2 = cannyTh2Mod ? getLiveParamValue(
-                                           "cannyThresh2",
-                                           cannyThresh2Param ? cannyThresh2Param->load() : 150.0f)
-                                     : (cannyThresh2Param ? cannyThresh2Param->load() : 150.0f);
-        if (cannyTh2Mod)
-            ImGui::BeginDisabled();
-        if (ImGui::SliderFloat("Canny Thresh 2", &cannyTh2, 0.0f, 255.0f))
-        {
+            bool  cannyTh2Mod = isParamModulated("cannyThresh2");
+            float cannyTh2 =
+                cannyTh2Mod
+                    ? getLiveParamValue(
+                          "cannyThresh2", cannyThresh2Param ? cannyThresh2Param->load() : 150.0f)
+                    : (cannyThresh2Param ? cannyThresh2Param->load() : 150.0f);
+            if (cannyTh2Mod)
+                ImGui::BeginDisabled();
+            if (ImGui::SliderFloat("Canny Thresh 2", &cannyTh2, 0.0f, 255.0f))
+            {
+                if (!cannyTh2Mod)
+                {
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("cannyThresh2")))
+                        *p = cannyTh2;
+                }
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit() && !cannyTh2Mod)
+                onModificationEnded();
             if (!cannyTh2Mod)
-            {
-                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
-                        apvts.getParameter("cannyThresh2")))
-                    *p = cannyTh2;
-            }
+                adjustParamOnWheel(apvts.getParameter("cannyThresh2"), "cannyThresh2", cannyTh2);
+            if (cannyTh2Mod)
+                ImGui::EndDisabled();
         }
-        if (ImGui::IsItemDeactivatedAfterEdit() && !cannyTh2Mod)
-            onModificationEnded();
-        if (!cannyTh2Mod)
-            adjustParamOnWheel(apvts.getParameter("cannyThresh2"), "cannyThresh2", cannyTh2);
-        if (cannyTh2Mod)
-            ImGui::EndDisabled();
+
+        ImGui::TreePop(); // End More Filters
     }
 
-    themeText("Advanced Effects", theme.modules.videofx_section_subheader);
-
-    // Vignette
-    bool  vignetteAmountMod = isParamModulated("vignetteAmount");
-    float vignetteAmount =
-        vignetteAmountMod
-            ? getLiveParamValue(
-                  "vignetteAmount", vignetteAmountParam ? vignetteAmountParam->load() : 0.0f)
-            : (vignetteAmountParam ? vignetteAmountParam->load() : 0.0f);
-    if (vignetteAmountMod)
-        ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Vignette Amount", &vignetteAmount, 0.0f, 1.0f))
+    // === ADVANCED EFFECTS (Collapsible) ===
+    ImGui::SetNextItemOpen(false, ImGuiCond_Once); // Start collapsed
+    if (ImGui::TreeNodeEx(
+            "Advanced Effects", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed))
     {
-        if (!vignetteAmountMod)
-        {
-            if (auto* p =
-                    dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("vignetteAmount")))
-                *p = vignetteAmount;
-        }
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !vignetteAmountMod)
-        onModificationEnded();
-    if (!vignetteAmountMod)
-        adjustParamOnWheel(apvts.getParameter("vignetteAmount"), "vignetteAmount", vignetteAmount);
-    if (vignetteAmountMod)
-        ImGui::EndDisabled();
-
-    if (vignetteAmount > 0.0f)
-    {
-        bool  vignetteSizeMod = isParamModulated("vignetteSize");
-        float vignetteSize =
-            vignetteSizeMod
+        // Vignette
+        bool  vignetteAmountMod = isParamModulated("vignetteAmount");
+        float vignetteAmount =
+            vignetteAmountMod
                 ? getLiveParamValue(
-                      "vignetteSize", vignetteSizeParam ? vignetteSizeParam->load() : 0.5f)
-                : (vignetteSizeParam ? vignetteSizeParam->load() : 0.5f);
-        if (vignetteSizeMod)
+                      "vignetteAmount", vignetteAmountParam ? vignetteAmountParam->load() : 0.0f)
+                : (vignetteAmountParam ? vignetteAmountParam->load() : 0.0f);
+        if (vignetteAmountMod)
             ImGui::BeginDisabled();
-        if (ImGui::SliderFloat("Vignette Size", &vignetteSize, 0.1f, 2.0f))
+        if (ImGui::SliderFloat("Vignette Amount", &vignetteAmount, 0.0f, 1.0f))
         {
-            if (!vignetteSizeMod)
+            if (!vignetteAmountMod)
             {
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
-                        apvts.getParameter("vignetteSize")))
-                    *p = vignetteSize;
+                        apvts.getParameter("vignetteAmount")))
+                    *p = vignetteAmount;
             }
         }
-        if (ImGui::IsItemDeactivatedAfterEdit() && !vignetteSizeMod)
+        if (ImGui::IsItemDeactivatedAfterEdit() && !vignetteAmountMod)
             onModificationEnded();
-        if (!vignetteSizeMod)
-            adjustParamOnWheel(apvts.getParameter("vignetteSize"), "vignetteSize", vignetteSize);
-        if (vignetteSizeMod)
+        if (!vignetteAmountMod)
+            adjustParamOnWheel(
+                apvts.getParameter("vignetteAmount"), "vignetteAmount", vignetteAmount);
+        if (vignetteAmountMod)
             ImGui::EndDisabled();
+
+        if (vignetteAmount > 0.0f)
+        {
+            bool  vignetteSizeMod = isParamModulated("vignetteSize");
+            float vignetteSize =
+                vignetteSizeMod
+                    ? getLiveParamValue(
+                          "vignetteSize", vignetteSizeParam ? vignetteSizeParam->load() : 0.5f)
+                    : (vignetteSizeParam ? vignetteSizeParam->load() : 0.5f);
+            if (vignetteSizeMod)
+                ImGui::BeginDisabled();
+            if (ImGui::SliderFloat("Vignette Size", &vignetteSize, 0.1f, 2.0f))
+            {
+                if (!vignetteSizeMod)
+                {
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("vignetteSize")))
+                        *p = vignetteSize;
+                }
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit() && !vignetteSizeMod)
+                onModificationEnded();
+            if (!vignetteSizeMod)
+                adjustParamOnWheel(
+                    apvts.getParameter("vignetteSize"), "vignetteSize", vignetteSize);
+            if (vignetteSizeMod)
+                ImGui::EndDisabled();
+        }
+
+        // Kaleidoscope
+        bool kaleidoscopeMod = isParamModulated("kaleidoscope");
+        if (kaleidoscopeMod)
+            ImGui::BeginDisabled();
+        int kaleidoscopeMode = kaleidoscopeModeParam ? kaleidoscopeModeParam->getIndex() : 0;
+        const char* kaleidoscopeModes[] = {"None", "4-Way", "8-Way"};
+        if (ImGui::Combo("Kaleidoscope", &kaleidoscopeMode, kaleidoscopeModes, 3))
+        {
+            if (!kaleidoscopeMod && kaleidoscopeModeParam)
+                kaleidoscopeModeParam->setValueNotifyingHost((float)kaleidoscopeMode / 2.0f);
+            onModificationEnded();
+        }
+        // Scroll-edit for kaleidoscope combo
+        if (!kaleidoscopeMod && ImGui::IsItemHovered())
+        {
+            const float wheel = ImGui::GetIO().MouseWheel;
+            if (wheel != 0.0f)
+            {
+                const int newMode = juce::jlimit(0, 2, kaleidoscopeMode + (wheel > 0.0f ? -1 : 1));
+                if (newMode != kaleidoscopeMode && kaleidoscopeModeParam)
+                {
+                    kaleidoscopeModeParam->setValueNotifyingHost((float)newMode / 2.0f);
+                    onModificationEnded();
+                }
+            }
+        }
+        if (kaleidoscopeMod)
+            ImGui::EndDisabled();
+
+        ImGui::TreePop(); // End Advanced Effects
     }
 
-    // Kaleidoscope
-    bool kaleidoscopeMod = isParamModulated("kaleidoscope");
-    if (kaleidoscopeMod)
-        ImGui::BeginDisabled();
-    int         kaleidoscopeMode = kaleidoscopeModeParam ? kaleidoscopeModeParam->getIndex() : 0;
-    const char* kaleidoscopeModes[] = {"None", "4-Way", "8-Way"};
-    if (ImGui::Combo("Kaleidoscope", &kaleidoscopeMode, kaleidoscopeModes, 3))
+    // === NEW EFFECTS (Collapsible) ===
+    ImGui::SetNextItemOpen(false, ImGuiCond_Once); // Start collapsed
+    if (ImGui::TreeNodeEx(
+            "New Effects", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed))
     {
-        if (!kaleidoscopeMod && kaleidoscopeModeParam)
-            kaleidoscopeModeParam->setValueNotifyingHost((float)kaleidoscopeMode / 2.0f);
-        onModificationEnded();
-    }
-    // Scroll-edit for kaleidoscope combo
-    if (!kaleidoscopeMod && ImGui::IsItemHovered())
-    {
-        const float wheel = ImGui::GetIO().MouseWheel;
-        if (wheel != 0.0f)
+        // Gamma
         {
-            const int newMode = juce::jlimit(0, 2, kaleidoscopeMode + (wheel > 0.0f ? -1 : 1));
-            if (newMode != kaleidoscopeMode && kaleidoscopeModeParam)
+            float gamma = gammaParam ? gammaParam->load() : 1.0f;
+            if (ImGui::SliderFloat("Gamma", &gamma, 0.1f, 3.0f))
+                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gamma")))
+                    *p = gamma;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
+        }
+
+        // Wet/Dry Mix
+        {
+            float wetDry = wetDryMixParam ? wetDryMixParam->load() : 1.0f;
+            if (ImGui::SliderFloat("Wet/Dry Mix", &wetDry, 0.0f, 1.0f))
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryMix")))
+                    *p = wetDry;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
+        }
+
+        // Levels
+        {
+            float black = levelsBlackParam ? levelsBlackParam->load() : 0.0f;
+            float white = levelsWhiteParam ? levelsWhiteParam->load() : 255.0f;
+            float gamma = levelsGammaParam ? levelsGammaParam->load() : 1.0f;
+            if (ImGui::SliderFloat("Levels Black", &black, 0.0f, 255.0f))
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("levelsBlack")))
+                    *p = black;
+            if (ImGui::SliderFloat("Levels White", &white, 0.0f, 255.0f))
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("levelsWhite")))
+                    *p = white;
+            if (ImGui::SliderFloat("Levels Gamma", &gamma, 0.1f, 3.0f))
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("levelsGamma")))
+                    *p = gamma;
+        }
+
+        // Noise
+        {
+            float noise = noiseAmountParam ? noiseAmountParam->load() : 0.0f;
+            if (ImGui::SliderFloat("Noise/Grain", &noise, 0.0f, 1.0f))
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("noiseAmount")))
+                    *p = noise;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
+        }
+
+        // Solarize
+        {
+            bool solarize = solarizeParam ? solarizeParam->get() : false;
+            if (ImGui::Checkbox("Solarize", &solarize))
             {
-                kaleidoscopeModeParam->setValueNotifyingHost((float)newMode / 2.0f);
+                if (solarizeParam)
+                    solarizeParam->setValueNotifyingHost(solarize ? 1.0f : 0.0f);
+                onModificationEnded();
+            }
+            if (solarize)
+            {
+                float thresh = solarizeThresholdParam ? solarizeThresholdParam->load() : 128.0f;
+                if (ImGui::SliderFloat("Solarize Threshold", &thresh, 0.0f, 255.0f))
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("solarizeThreshold")))
+                        *p = thresh;
+            }
+        }
+
+        // Emboss
+        {
+            bool emboss = embossParam ? embossParam->get() : false;
+            if (ImGui::Checkbox("Emboss", &emboss))
+            {
+                if (embossParam)
+                    embossParam->setValueNotifyingHost(emboss ? 1.0f : 0.0f);
+                onModificationEnded();
+            }
+            if (emboss)
+            {
+                float strength = embossStrengthParam ? embossStrengthParam->load() : 1.0f;
+                if (ImGui::SliderFloat("Emboss Strength", &strength, 0.5f, 3.0f))
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("embossStrength")))
+                        *p = strength;
+            }
+        }
+
+        // Mirror
+        {
+            int         mirrorMode = mirrorModeParam ? mirrorModeParam->getIndex() : 0;
+            const char* mirrorModes[] = {
+                "None", "Left-Right", "Right-Left", "Top-Bottom", "Bottom-Top"};
+            if (ImGui::Combo("Mirror", &mirrorMode, mirrorModes, 5))
+            {
+                if (mirrorModeParam)
+                    mirrorModeParam->setValueNotifyingHost((float)mirrorMode / 4.0f);
                 onModificationEnded();
             }
         }
+
+        // Rotation
+        {
+            int         rotMode = rotationModeParam ? rotationModeParam->getIndex() : 0;
+            const char* rotModes[] = {"0", "90", "180", "270"};
+            if (ImGui::Combo("Rotation", &rotMode, rotModes, 4))
+            {
+                if (rotationModeParam)
+                    rotationModeParam->setValueNotifyingHost((float)rotMode / 3.0f);
+                onModificationEnded();
+            }
+        }
+
+        // Scanlines
+        {
+            float scanlines = scanlineAmountParam ? scanlineAmountParam->load() : 0.0f;
+            if (ImGui::SliderFloat("Scanlines", &scanlines, 0.0f, 1.0f))
+                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                        apvts.getParameter("scanlineAmount")))
+                    *p = scanlines;
+            if (scanlines > 0.0f)
+            {
+                int spacing = scanlineSpacingParam ? scanlineSpacingParam->get() : 2;
+                if (ImGui::SliderInt("Scanline Spacing", &spacing, 1, 10))
+                    if (scanlineSpacingParam)
+                        scanlineSpacingParam->setValueNotifyingHost((float)(spacing - 1) / 9.0f);
+            }
+        }
+
+        // Dithering
+        {
+            bool dither = ditherEnableParam ? ditherEnableParam->get() : false;
+            if (ImGui::Checkbox("Dithering", &dither))
+            {
+                if (ditherEnableParam)
+                    ditherEnableParam->setValueNotifyingHost(dither ? 1.0f : 0.0f);
+                onModificationEnded();
+            }
+            if (dither)
+            {
+                int levels = ditherLevelsParam ? ditherLevelsParam->get() : 4;
+                if (ImGui::SliderInt("Dither Levels", &levels, 2, 8))
+                    if (ditherLevelsParam)
+                        ditherLevelsParam->setValueNotifyingHost((float)(levels - 2) / 6.0f);
+            }
+        }
+
+        ImGui::TreePop(); // End New Effects
     }
-    if (kaleidoscopeMod)
-        ImGui::EndDisabled();
+
+    // === DISTORTION (Collapsible) ===
+    ImGui::SetNextItemOpen(false, ImGuiCond_Once); // Start collapsed
+    if (ImGui::TreeNodeEx(
+            "Distortion", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed))
+    {
+        // Chromatic Aberration
+        {
+            float chroma = chromaAberrationParam ? chromaAberrationParam->load() : 0.0f;
+            if (ImGui::SliderFloat("Chromatic Aberration", &chroma, 0.0f, 20.0f))
+                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                        apvts.getParameter("chromaAberration")))
+                    *p = chroma;
+        }
+
+        // Zoom Blur
+        {
+            float zoom = zoomBlurAmountParam ? zoomBlurAmountParam->load() : 0.0f;
+            if (ImGui::SliderFloat("Zoom Blur", &zoom, 0.0f, 1.0f))
+                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                        apvts.getParameter("zoomBlurAmount")))
+                    *p = zoom;
+        }
+
+        // Edge Glow
+        {
+            float glow = edgeGlowAmountParam ? edgeGlowAmountParam->load() : 0.0f;
+            if (ImGui::SliderFloat("Edge Glow", &glow, 0.0f, 1.0f))
+                if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                        apvts.getParameter("edgeGlowAmount")))
+                    *p = glow;
+            if (glow > 0.0f)
+            {
+                float r = edgeGlowRParam ? edgeGlowRParam->load() : 0.0f;
+                float g = edgeGlowGParam ? edgeGlowGParam->load() : 1.0f;
+                float b = edgeGlowBParam ? edgeGlowBParam->load() : 1.0f;
+                if (ImGui::SliderFloat("Glow Red", &r, 0.0f, 1.0f))
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("edgeGlowR")))
+                        *p = r;
+                if (ImGui::SliderFloat("Glow Green", &g, 0.0f, 1.0f))
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("edgeGlowG")))
+                        *p = g;
+                if (ImGui::SliderFloat("Glow Blue", &b, 0.0f, 1.0f))
+                    if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(
+                            apvts.getParameter("edgeGlowB")))
+                        *p = b;
+            }
+        }
+
+        ImGui::TreePop(); // End Distortion
+    }
 
     drawPerformanceMetrics(itemWidth);
     ImGui::PopItemWidth();
+
+    // === RESTORE WORKRECT VALUES ===
+    window->WorkRect.Max.x = savedWorkRectMaxX;
+    window->ContentRegionRect.Max.x = savedContentRegionMaxX;
 }
 
 void VideoFXModule::drawIoPins(const NodePinHelpers& helpers)
 {
-    // Pins are handled via getDynamicInputPins/getDynamicOutputPins for proper Video type coloring
-    // This method is called but dynamic pins take precedence
+    // Pins are handled via getDynamicInputPins/getDynamicOutputPins for proper Video type
+    // coloring This method is called but dynamic pins take precedence
     helpers.drawAudioInputPin("Source In", 0);
     helpers.drawAudioOutputPin("Output", 0);
 }
@@ -1567,42 +2412,49 @@ void VideoFXModule::applySepia_gpu(cv::cuda::GpuMat& ioFrame, bool sepia)
     if (!sepia)
         return;
 
-    // Efficient GPU implementation using a single GEMM (matrix multiply):
-    // Flatten (W*H, 3) x (3,3) = (W*H,3), then reshape back to (H,W,3).
+    // Sepia matrix coefficients (BGR order):
+    // B' = 0.131*B + 0.534*G + 0.272*R
+    // G' = 0.168*B + 0.686*G + 0.349*R
+    // R' = 0.189*B + 0.769*G + 0.393*R
 
-    // 3x3 kernel in BGR order (rows: output B,G,R; cols: input B,G,R)
-    static cv::Mat sepiaKernelCpu =
-        (cv::Mat_<float>(3, 3) << 0.131f,
-         0.534f,
-         0.272f, // B' = 0.131*B + 0.534*G + 0.272*R
-         0.168f,
-         0.686f,
-         0.349f, // G'
-         0.189f,
-         0.769f,
-         0.393f // R'
-        );
+    // Split into BGR channels
+    cv::cuda::split(ioFrame, gpuChannels);
 
-    // Cache the kernel on GPU
-    static cv::cuda::GpuMat sepiaKernelGpu;
-    if (sepiaKernelGpu.empty())
-        sepiaKernelGpu.upload(sepiaKernelCpu);
+    // Convert channels to float for weighted math
+    cv::cuda::GpuMat bF, gF, rF;
+    gpuChannels[0].convertTo(bF, CV_32F);
+    gpuChannels[1].convertTo(gF, CV_32F);
+    gpuChannels[2].convertTo(rF, CV_32F);
 
-    // 1) Reshape to (W*H, 3) with single channel
-    cv::cuda::GpuMat flat1C = ioFrame.reshape(1, ioFrame.rows * ioFrame.cols);
+    // Calculate new B channel: 0.131*B + 0.534*G + 0.272*R
+    cv::cuda::GpuMat newB, newG, newR, tmpAdd;
+    cv::cuda::multiply(bF, 0.131, gpuTempF1);
+    cv::cuda::multiply(gF, 0.534, gpuTempF2);
+    cv::cuda::add(gpuTempF1, gpuTempF2, newB);
+    cv::cuda::multiply(rF, 0.272, gpuTempF1);
+    cv::cuda::add(newB, gpuTempF1, newB);
 
-    // 2) Convert to float32
-    flat1C.convertTo(gpuTempF1, CV_32F);
+    // Calculate new G channel: 0.168*B + 0.686*G + 0.349*R
+    cv::cuda::multiply(bF, 0.168, gpuTempF1);
+    cv::cuda::multiply(gF, 0.686, gpuTempF2);
+    cv::cuda::add(gpuTempF1, gpuTempF2, newG);
+    cv::cuda::multiply(rF, 0.349, gpuTempF1);
+    cv::cuda::add(newG, gpuTempF1, newG);
 
-    // 3) GEMM: (W*H,3) * (3,3) -> (W*H,3)
-    cv::cuda::gemm(gpuTempF1, sepiaKernelGpu, 1.0, cv::cuda::GpuMat(), 0.0, gpuTempF2);
+    // Calculate new R channel: 0.189*B + 0.769*G + 0.393*R
+    cv::cuda::multiply(bF, 0.189, gpuTempF1);
+    cv::cuda::multiply(gF, 0.769, gpuTempF2);
+    cv::cuda::add(gpuTempF1, gpuTempF2, newR);
+    cv::cuda::multiply(rF, 0.393, gpuTempF1);
+    cv::cuda::add(newR, gpuTempF1, newR);
 
-    // 4) Back to 8U
-    gpuTempF2.convertTo(gpuTemp, CV_8U);
+    // Convert back to 8U and clamp
+    newB.convertTo(gpuChannels[0], CV_8U);
+    newG.convertTo(gpuChannels[1], CV_8U);
+    newR.convertTo(gpuChannels[2], CV_8U);
 
-    // 5) Reshape back to 3 channels (H,W,3)
-    cv::cuda::GpuMat reshaped = gpuTemp.reshape(3, ioFrame.rows);
-    reshaped.copyTo(ioFrame);
+    // Merge channels
+    cv::cuda::merge(gpuChannels, ioFrame);
 }
 
 void VideoFXModule::applyRgbGain_gpu(
@@ -1830,9 +2682,12 @@ void VideoFXModule::applyVignette_gpu(cv::cuda::GpuMat& ioFrame, float amount, f
         lastVignetteSize = size;
     }
 
-    // Apply the mask (3-channel 8U * 1-channel 32F = 3-channel 32F)
+    // Apply the mask to each channel individually (channel broadcast fix)
     ioFrame.convertTo(gpuTemp, CV_32F);
-    cv::cuda::multiply(gpuTemp, gpuVignetteMask, gpuTemp);
+    cv::cuda::split(gpuTemp, gpuChannels);
+    for (int i = 0; i < 3; i++)
+        cv::cuda::multiply(gpuChannels[i], gpuVignetteMask, gpuChannels[i]);
+    cv::cuda::merge(gpuChannels, gpuTemp);
     gpuTemp.convertTo(ioFrame, CV_8U);
 }
 
@@ -1917,6 +2772,303 @@ void VideoFXModule::applyKaleidoscope_gpu(cv::cuda::GpuMat& ioFrame, int mode)
         // TODO: Implement 8-way with a custom kernel or fallback to CPU.
         applyKaleidoscope_gpu(ioFrame, 1); // Just do 4-way for now
     }
+}
+
+// ==============================================================================
+// === NEW GPU EFFECT FUNCTIONS (Native GPU) ====================================
+// ==============================================================================
+
+void VideoFXModule::applyGamma_gpu(cv::cuda::GpuMat& ioFrame, float gamma)
+{
+    if (gamma == 1.0f)
+        return;
+    // Use LUT for GPU gamma correction
+    static float            lastGamma = -1.0f;
+    static cv::cuda::GpuMat gammaLutGpu;
+
+    if (gamma != lastGamma || gammaLutGpu.empty())
+    {
+        cv::Mat lut(1, 256, CV_8UC1);
+        for (int i = 0; i < 256; i++)
+            lut.at<uchar>(i) = cv::saturate_cast<uchar>(std::pow(i / 255.0f, gamma) * 255.0f);
+        gammaLutGpu.upload(lut);
+        lastGamma = gamma;
+    }
+    cv::Ptr<cv::cuda::LookUpTable> lutObj = cv::cuda::createLookUpTable(gammaLutGpu);
+    lutObj->transform(ioFrame, ioFrame);
+}
+
+void VideoFXModule::applyLevels_gpu(
+    cv::cuda::GpuMat& ioFrame,
+    float             black,
+    float             white,
+    float             gamma)
+{
+    if (black == 0.0f && white == 255.0f && gamma == 1.0f)
+        return;
+    // Use LUT for GPU levels adjustment
+    static float            lastBlack = -1.0f, lastWhite = -1.0f, lastGamma = -1.0f;
+    static cv::cuda::GpuMat levelsLutGpu;
+
+    if (black != lastBlack || white != lastWhite || gamma != lastGamma || levelsLutGpu.empty())
+    {
+        float range = white - black;
+        if (range <= 0)
+            range = 1.0f;
+        cv::Mat lut(1, 256, CV_8UC1);
+        for (int i = 0; i < 256; i++)
+        {
+            float normalized = (i - black) / range;
+            normalized = std::clamp(normalized, 0.0f, 1.0f);
+            if (gamma != 1.0f)
+                normalized = std::pow(normalized, gamma);
+            lut.at<uchar>(i) = cv::saturate_cast<uchar>(normalized * 255.0f);
+        }
+        levelsLutGpu.upload(lut);
+        lastBlack = black;
+        lastWhite = white;
+        lastGamma = gamma;
+    }
+    cv::Ptr<cv::cuda::LookUpTable> lutObj = cv::cuda::createLookUpTable(levelsLutGpu);
+    lutObj->transform(ioFrame, ioFrame);
+}
+
+void VideoFXModule::applyChannelMixer_gpu(
+    cv::cuda::GpuMat& ioFrame,
+    float             rr,
+    float             rg,
+    float             rb,
+    float             gr,
+    float             gg,
+    float             gb,
+    float             br,
+    float             bg,
+    float             bb)
+{
+    if (rr == 1.0f && rg == 0.0f && rb == 0.0f && gr == 0.0f && gg == 1.0f && gb == 0.0f &&
+        br == 0.0f && bg == 0.0f && bb == 1.0f)
+        return;
+    cv::Mat cpu;
+    ioFrame.download(cpu);
+    applyChannelMixer(cpu, rr, rg, rb, gr, gg, gb, br, bg, bb);
+    ioFrame.upload(cpu);
+}
+
+void VideoFXModule::applyBlendColor_gpu(
+    cv::cuda::GpuMat& ioFrame,
+    float             amount,
+    float             r,
+    float             g,
+    float             b,
+    int               blendMode)
+{
+    if (amount <= 0.0f)
+        return;
+    cv::Mat cpu;
+    ioFrame.download(cpu);
+    applyBlendColor(cpu, amount, r, g, b, blendMode);
+    ioFrame.upload(cpu);
+}
+
+void VideoFXModule::applySolarize_gpu(cv::cuda::GpuMat& ioFrame, float threshold)
+{
+    cv::Mat cpu;
+    ioFrame.download(cpu);
+    applySolarize(cpu, threshold);
+    ioFrame.upload(cpu);
+}
+
+void VideoFXModule::applyEmboss_gpu(cv::cuda::GpuMat& ioFrame, float strength)
+{
+    cv::Mat cpu;
+    ioFrame.download(cpu);
+    applyEmboss(cpu, strength);
+    ioFrame.upload(cpu);
+}
+
+void VideoFXModule::applyNoise_gpu(cv::cuda::GpuMat& ioFrame, float amount)
+{
+    if (amount <= 0.0f)
+        return;
+    cv::Mat cpu;
+    ioFrame.download(cpu);
+    applyNoise(cpu, amount);
+    ioFrame.upload(cpu);
+}
+
+void VideoFXModule::applyMirror_gpu(cv::cuda::GpuMat& ioFrame, int mode)
+{
+    if (mode == 0)
+        return;
+    int w = ioFrame.cols, h = ioFrame.rows, halfW = w / 2, halfH = h / 2;
+    switch (mode)
+    {
+    case 1:
+    {
+        cv::cuda::GpuMat half(ioFrame, cv::Rect(0, 0, halfW, h));
+        cv::cuda::flip(half, gpuTemp, 1);
+        gpuTemp.copyTo(cv::cuda::GpuMat(ioFrame, cv::Rect(halfW, 0, halfW, h)));
+        break;
+    }
+    case 2:
+    {
+        cv::cuda::GpuMat half(ioFrame, cv::Rect(halfW, 0, halfW, h));
+        cv::cuda::flip(half, gpuTemp, 1);
+        gpuTemp.copyTo(cv::cuda::GpuMat(ioFrame, cv::Rect(0, 0, halfW, h)));
+        break;
+    }
+    case 3:
+    {
+        cv::cuda::GpuMat half(ioFrame, cv::Rect(0, 0, w, halfH));
+        cv::cuda::flip(half, gpuTemp, 0);
+        gpuTemp.copyTo(cv::cuda::GpuMat(ioFrame, cv::Rect(0, halfH, w, halfH)));
+        break;
+    }
+    case 4:
+    {
+        cv::cuda::GpuMat half(ioFrame, cv::Rect(0, halfH, w, halfH));
+        cv::cuda::flip(half, gpuTemp, 0);
+        gpuTemp.copyTo(cv::cuda::GpuMat(ioFrame, cv::Rect(0, 0, w, halfH)));
+        break;
+    }
+    }
+}
+
+void VideoFXModule::applyRotation_gpu(cv::cuda::GpuMat& ioFrame, int mode)
+{
+    if (mode == 0)
+        return;
+    // OpenCV CUDA rotate function
+    switch (mode)
+    {
+    case 1:
+        cv::cuda::rotate(ioFrame, gpuTemp, ioFrame.size(), 90, ioFrame.cols - 1, 0);
+        gpuTemp.copyTo(ioFrame);
+        break;
+    case 2:
+        cv::cuda::rotate(ioFrame, gpuTemp, ioFrame.size(), 180, ioFrame.cols - 1, ioFrame.rows - 1);
+        gpuTemp.copyTo(ioFrame);
+        break;
+    case 3:
+        cv::cuda::rotate(ioFrame, gpuTemp, ioFrame.size(), 270, 0, ioFrame.rows - 1);
+        gpuTemp.copyTo(ioFrame);
+        break;
+    }
+}
+
+void VideoFXModule::applyScanlines_gpu(cv::cuda::GpuMat& ioFrame, float amount, int spacing)
+{
+    if (amount <= 0.0f)
+        return;
+    // Create scanline mask in GPU memory (cached)
+    static cv::cuda::GpuMat scanMask;
+    static int              lastH = 0, lastSpacing = 0;
+    static float            lastAmount = -1.0f;
+
+    if (ioFrame.rows != lastH || spacing != lastSpacing || amount != lastAmount)
+    {
+        cv::Mat cpuMask(ioFrame.rows, ioFrame.cols, CV_8UC3, cv::Scalar(255, 255, 255));
+        uchar   darken = static_cast<uchar>((1.0f - amount) * 255);
+        for (int y = 0; y < cpuMask.rows; y += spacing)
+            cpuMask.row(y).setTo(cv::Scalar(darken, darken, darken));
+        scanMask.upload(cpuMask);
+        lastH = ioFrame.rows;
+        lastSpacing = spacing;
+        lastAmount = amount;
+    }
+    cv::cuda::multiply(ioFrame, scanMask, ioFrame, 1.0 / 255.0);
+}
+
+void VideoFXModule::applyDithering_gpu(cv::cuda::GpuMat& ioFrame, int levels)
+{
+    if (levels >= 256 || levels < 2)
+        return;
+    // Use LUT similar to posterize - fully GPU based
+    static int              lastLevels = -1;
+    static cv::cuda::GpuMat lutGpu;
+
+    if (levels != lastLevels || lutGpu.empty())
+    {
+        float   step = 255.0f / (levels - 1);
+        cv::Mat lutCpu(1, 256, CV_8UC1);
+        for (int i = 0; i < 256; i++)
+            lutCpu.at<uchar>(i) = cv::saturate_cast<uchar>(std::round(i / step) * step);
+        lutGpu.upload(lutCpu);
+        lastLevels = levels;
+    }
+    cv::Ptr<cv::cuda::LookUpTable> lut = cv::cuda::createLookUpTable(lutGpu);
+    lut->transform(ioFrame, ioFrame);
+}
+
+void VideoFXModule::applyChromaAberration_gpu(cv::cuda::GpuMat& ioFrame, float amount)
+{
+    if (amount <= 0.0f)
+        return;
+    int shift = static_cast<int>(amount);
+    // Split channels, shift using warpAffine, merge back
+    std::vector<cv::cuda::GpuMat> channels(3);
+    cv::cuda::split(ioFrame, channels);
+
+    cv::Mat M_r = (cv::Mat_<float>(2, 3) << 1, 0, shift, 0, 1, 0);
+    cv::Mat M_b = (cv::Mat_<float>(2, 3) << 1, 0, -shift, 0, 1, 0);
+
+    cv::cuda::warpAffine(channels[2], channels[2], M_r, ioFrame.size());
+    cv::cuda::warpAffine(channels[0], channels[0], M_b, ioFrame.size());
+    cv::cuda::merge(channels, ioFrame);
+}
+
+void VideoFXModule::applyZoomBlur_gpu(cv::cuda::GpuMat& ioFrame, float amount)
+{
+    if (amount <= 0.0f)
+        return;
+    // Zoom blur needs multiple warp operations - use GPU warpAffine
+    int   steps = std::min(static_cast<int>(amount * 10) + 1, 5);
+    float cx = ioFrame.cols / 2.0f, cy = ioFrame.rows / 2.0f;
+
+    cv::cuda::GpuMat accum32F;
+    ioFrame.convertTo(accum32F, CV_32FC3);
+
+    for (int i = 1; i <= steps; i++)
+    {
+        float            scale = 1.0f + (amount * 0.02f * i);
+        cv::Mat          M = cv::getRotationMatrix2D(cv::Point2f(cx, cy), 0, scale);
+        cv::cuda::GpuMat warped, warped32F;
+        cv::cuda::warpAffine(ioFrame, warped, M, ioFrame.size());
+        warped.convertTo(warped32F, CV_32FC3);
+        cv::cuda::add(accum32F, warped32F, accum32F);
+    }
+    cv::cuda::divide(accum32F, cv::Scalar(steps + 1, steps + 1, steps + 1), accum32F);
+    accum32F.convertTo(ioFrame, CV_8UC3);
+}
+
+void VideoFXModule::applyEdgeGlow_gpu(
+    cv::cuda::GpuMat& ioFrame,
+    float             amount,
+    float             r,
+    float             g,
+    float             b)
+{
+    if (amount <= 0.0f)
+        return;
+    cv::cuda::GpuMat gray, edges;
+    cv::cuda::cvtColor(ioFrame, gray, cv::COLOR_BGR2GRAY);
+
+    cv::Ptr<cv::cuda::CannyEdgeDetector> canny = cv::cuda::createCannyEdgeDetector(50, 150);
+    canny->detect(gray, edges);
+
+    cv::Ptr<cv::cuda::Filter> dilateFilter =
+        cv::cuda::createMorphologyFilter(cv::MORPH_DILATE, CV_8UC1, cv::Mat::ones(3, 3, CV_8U));
+    dilateFilter->apply(edges, edges);
+    dilateFilter->apply(edges, edges);
+
+    cv::cuda::GpuMat glow(ioFrame.size(), ioFrame.type(), cv::Scalar(b * 255, g * 255, r * 255));
+    cv::cuda::GpuMat edgesMask;
+    cv::cuda::cvtColor(edges, edgesMask, cv::COLOR_GRAY2BGR);
+
+    cv::cuda::GpuMat glowMasked;
+    cv::cuda::multiply(glow, edgesMask, glowMasked, 1.0 / 255.0);
+
+    cv::cuda::addWeighted(ioFrame, 1.0, glowMasked, amount, 0, ioFrame);
 }
 
 #endif

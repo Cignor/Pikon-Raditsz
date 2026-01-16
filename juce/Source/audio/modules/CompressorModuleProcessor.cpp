@@ -355,11 +355,12 @@ juce::String CompressorModuleProcessor::getAudioOutputLabel(int channel) const
 }
 
 #if defined(PRESET_CREATOR_UI)
-void CompressorModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void CompressorModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
-    ImGui::PushID(this);
     ImGui::PushItemWidth(itemWidth);
 
     // Helper for tooltips
@@ -374,12 +375,20 @@ void CompressorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     };
 
     // Lambda that correctly handles modulation
-    auto drawSlider = [&](const char* label, const juce::String& paramId, const juce::String& modId, float min, float max, const char* format, const char* tooltip) {
+    auto drawSlider = [&](const char* label, const juce::String& paramId, const juce::String& modId, float min, float max, const char* format, const char* tooltip, int channel = -1) {
         bool isMod = isParamModulated(modId);
         float value = isMod ? getLiveParamValueFor(modId, paramId + juce::String("_live"), ap.getRawParameterValue(paramId)->load())
                             : ap.getRawParameterValue(paramId)->load();
         
         if (isMod) ImGui::BeginDisabled();
+        
+        // Draw inline pin if channel is specified and pinHelpers is available
+        if (channel >= 0 && pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+        
         if (ImGui::SliderFloat(label, &value, min, max, format))
             if (!isMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramId)) = value;
         if (!isMod) adjustParamOnWheel(ap.getParameter(paramId), paramId, value);
@@ -392,8 +401,8 @@ void CompressorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ThemeText("Dynamics", theme.text.section_header);
     ImGui::Spacing();
 
-    drawSlider("Threshold", paramIdThreshold, paramIdThresholdMod, -60.0f, 0.0f, "%.1f dB", "Level above which compression starts (-60 to 0 dB)");
-    drawSlider("Ratio", paramIdRatio, paramIdRatioMod, 1.0f, 20.0f, "%.1f : 1", "Compression ratio (1:1 to 20:1)\n4:1 = moderate, 10:1 = heavy, 20:1 = limiting");
+    drawSlider("Threshold", paramIdThreshold, paramIdThresholdMod, -60.0f, 0.0f, "%.1f dB", "Level above which compression starts (-60 to 0 dB)", 2);  // Channel 2 = Thresh Mod
+    drawSlider("Ratio", paramIdRatio, paramIdRatioMod, 1.0f, 20.0f, "%.1f : 1", "Compression ratio (1:1 to 20:1)\n4:1 = moderate, 10:1 = heavy, 20:1 = limiting", 3);  // Channel 3 = Ratio Mod
 
     ImGui::Spacing();
     ImGui::Spacing();
@@ -402,8 +411,8 @@ void CompressorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ThemeText("Timing", theme.text.section_header);
     ImGui::Spacing();
 
-    drawSlider("Attack", paramIdAttack, paramIdAttackMod, 0.1f, 200.0f, "%.1f ms", "How fast compression engages (0.1-200 ms)\nFast = punchy, Slow = smooth");
-    drawSlider("Release", paramIdRelease, paramIdReleaseMod, 5.0f, 1000.0f, "%.0f ms", "How fast compression releases (5-1000 ms)\nFast = pumping, Slow = transparent");
+    drawSlider("Attack", paramIdAttack, paramIdAttackMod, 0.1f, 200.0f, "%.1f ms", "How fast compression engages (0.1-200 ms)\nFast = punchy, Slow = smooth", 4);  // Channel 4 = Attack Mod
+    drawSlider("Release", paramIdRelease, paramIdReleaseMod, 5.0f, 1000.0f, "%.0f ms", "How fast compression releases (5-1000 ms)\nFast = pumping, Slow = transparent", 5);  // Channel 5 = Release Mod
 
     ImGui::Spacing();
     ImGui::Spacing();
@@ -412,8 +421,8 @@ void CompressorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ThemeText("Output", theme.text.section_header);
     ImGui::Spacing();
 
-    drawSlider("Makeup", paramIdMakeup, paramIdMakeupMod, -12.0f, 12.0f, "%.1f dB", "Output gain compensation (-12 to +12 dB)");
-    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f", "Wet/dry balance (0=dry, 1=wet)");
+    drawSlider("Makeup", paramIdMakeup, paramIdMakeupMod, -12.0f, 12.0f, "%.1f dB", "Output gain compensation (-12 to +12 dB)", 6);  // Channel 6 = Makeup Mod
+    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f", "Wet/dry balance (0=dry, 1=wet)", 7);  // Channel 7 = Mix Mod
 
     ImGui::Spacing();
     ImGui::Spacing();
@@ -570,14 +579,10 @@ void CompressorModuleProcessor::drawParametersInNode(float itemWidth, const std:
 
 void CompressorModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Only draw audio pins - modulation pins (channels 2-7) are now inline
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
-    helpers.drawParallelPins("Thresh Mod", 2, nullptr, -1);
-    helpers.drawParallelPins("Ratio Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Attack Mod", 4, nullptr, -1);
-    helpers.drawParallelPins("Release Mod", 5, nullptr, -1);
-    helpers.drawParallelPins("Makeup Mod", 6, nullptr, -1);
-    helpers.drawParallelPins("Mix Mod", 7, nullptr, -1);
+    // Thresh Mod (ch 2), Ratio Mod (ch 3), Attack Mod (ch 4), Release Mod (ch 5), Makeup Mod (ch 6), Mix Mod (ch 7) are drawn inline in drawParametersInNode
 }
 #endif
 

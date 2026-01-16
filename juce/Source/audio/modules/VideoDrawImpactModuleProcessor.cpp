@@ -245,10 +245,19 @@ void VideoDrawImpactModuleProcessor::run()
         double              deltaTime = 0.0;
         if (timelineState.isValid)
         {
-            double duration = juce::jmax(1e-6, timelineState.durationSeconds);
+            const double rangeDuration = timelineState.hasRange
+                                             ? juce::jmax(1e-6,
+                                                         timelineState.rangeEndSeconds -
+                                                             timelineState.rangeStartSeconds)
+                                             : juce::jmax(1e-6, timelineState.durationSeconds);
             deltaTime = timelinePos - prevPos;
             if (deltaTime < 0.0)
-                deltaTime += duration;
+            {
+                if (timelineState.loopEnabled && rangeDuration > 0.0)
+                    deltaTime += rangeDuration;
+                else
+                    deltaTime = 0.0;
+            }
             if (!timelineState.isActive)
                 deltaTime = 0.0;
         }
@@ -402,6 +411,30 @@ VideoDrawImpactModuleProcessor::SourceTimelineState VideoDrawImpactModuleProcess
             state.isActive = module->isTimelineActive();
             state.isValid = state.durationSeconds > 0.0;
         }
+
+        if (state.isValid && module->getName() == "video_file_loader")
+        {
+            auto& apvts = const_cast<ModuleProcessor*>(module)->getAPVTS();
+            auto* inParam = apvts.getRawParameterValue("in");
+            auto* outParam = apvts.getRawParameterValue("out");
+            auto* loopParam = apvts.getRawParameterValue("loop");
+            if (inParam != nullptr && outParam != nullptr)
+            {
+                const double startNorm =
+                    juce::jlimit(0.0, 1.0, static_cast<double>(inParam->load()));
+                const double endNorm =
+                    juce::jlimit(0.0, 1.0, static_cast<double>(outParam->load()));
+                const double startSec = startNorm * state.durationSeconds;
+                const double endSec = endNorm * state.durationSeconds;
+                if (endSec > startSec + 1e-6)
+                {
+                    state.rangeStartSeconds = startSec;
+                    state.rangeEndSeconds = endSec;
+                    state.hasRange = true;
+                }
+                state.loopEnabled = (loopParam != nullptr && loopParam->load() > 0.5f);
+            }
+        }
     }
 
     return state;
@@ -508,7 +541,12 @@ void VideoDrawImpactModuleProcessor::processPendingDrawOps()
     int                       currentFrame = currentFrameNumber.load();
     const SourceTimelineState timelineState = getSourceTimelineState();
     const double              timelineDuration =
-        timelineState.isValid ? juce::jmax(1e-6, timelineState.durationSeconds) : 1.0;
+        timelineState.isValid
+            ? (timelineState.hasRange
+                   ? juce::jmax(1e-6,
+                               timelineState.rangeEndSeconds - timelineState.rangeStartSeconds)
+                   : juce::jmax(1e-6, timelineState.durationSeconds))
+            : 1.0;
 
     for (const auto& op : pendingDrawOps)
     {
@@ -562,8 +600,11 @@ void VideoDrawImpactModuleProcessor::processPendingDrawOps()
                 if (timelineState.isValid)
                 {
                     double timeSeconds = timelineState.positionSeconds;
-                    if (timelineDuration > 0.0)
-                        timeSeconds = std::fmod(juce::jmax(0.0, timeSeconds), timelineDuration);
+                    if (timelineState.hasRange)
+                    {
+                        timeSeconds = juce::jlimit(
+                            timelineState.rangeStartSeconds, timelineState.rangeEndSeconds, timeSeconds);
+                    }
                     keyframe.timeSeconds = timeSeconds;
                 }
                 else
@@ -676,7 +717,12 @@ void VideoDrawImpactModuleProcessor::drawStrokesOnFrame(
     }
 
     const double duration =
-        timelineState.isValid ? juce::jmax(1e-6, timelineState.durationSeconds) : 0.0;
+        timelineState.isValid
+            ? (timelineState.hasRange
+                   ? juce::jmax(1e-6,
+                               timelineState.rangeEndSeconds - timelineState.rangeStartSeconds)
+                   : juce::jmax(1e-6, timelineState.durationSeconds))
+            : 0.0;
     const double currentTime = timelineState.isValid
                                    ? timelineState.positionSeconds
                                    : static_cast<double>(currentFrameIndex) * frameDurationSeconds;
@@ -694,7 +740,10 @@ void VideoDrawImpactModuleProcessor::drawStrokesOnFrame(
         {
             double dt = currentTime - kf.timeSeconds;
             if (dt < 0.0 && duration > 0.0)
-                dt += duration;
+            {
+                if (timelineState.loopEnabled)
+                    dt += duration;
+            }
             if (dt >= 0.0 && dt <= persistenceSeconds)
                 shouldDraw = true;
         }
@@ -706,6 +755,15 @@ void VideoDrawImpactModuleProcessor::drawStrokesOnFrame(
                 double dtSeconds = frameOffset * frameDurationSeconds;
                 if (dtSeconds <= persistenceSeconds)
                     shouldDraw = true;
+            }
+        }
+
+        if (timelineState.isValid && timelineState.hasRange)
+        {
+            if (kf.timeSeconds < timelineState.rangeStartSeconds ||
+                kf.timeSeconds > timelineState.rangeEndSeconds)
+            {
+                shouldDraw = false;
             }
         }
 
@@ -1241,10 +1299,15 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
         ImGui::Text("Frame: %dx%d", frameWidth, frameHeight);
         ImGui::Text("Frame #: %d", currentFrameNumber.load());
         if (timelineStateUi.isValid)
-            ImGui::Text(
-                "Time: %.2fs / %.2fs",
-                timelineStateUi.positionSeconds,
-                timelineStateUi.durationSeconds);
+        {
+            const double displayStart =
+                timelineStateUi.hasRange ? timelineStateUi.rangeStartSeconds : 0.0;
+            const double displayEnd = timelineStateUi.hasRange ? timelineStateUi.rangeEndSeconds
+                                                               : timelineStateUi.durationSeconds;
+            const double displayPos = juce::jlimit(
+                displayStart, displayEnd, timelineStateUi.positionSeconds);
+            ImGui::Text("Time: %.2fs / %.2fs", displayPos, displayEnd);
+        }
     }
     else
     {
@@ -1315,8 +1378,14 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
         ImU32 playheadColor = IM_COL32(255, 200, 0, 255);
 
         const bool hasTimeline = timelineStateUi.isValid;
-        double     totalDuration =
-            hasTimeline ? juce::jmax(1e-3, timelineStateUi.durationSeconds) : 1.0;
+        double     totalDuration = hasTimeline
+                                       ? juce::jmax(
+                                             1e-3,
+                                             timelineStateUi.hasRange
+                                                 ? (timelineStateUi.rangeEndSeconds -
+                                                    timelineStateUi.rangeStartSeconds)
+                                                 : timelineStateUi.durationSeconds)
+                                       : 1.0;
         int minFrame = 0;
         int maxFrame = currentFrame;
         if (!hasTimeline && !keyframesCopy.empty())
@@ -1355,9 +1424,13 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
                 }
                 else
                 {
+                    const double displayStartForZoom =
+                        (hasTimeline && timelineStateUi.hasRange) ? timelineStateUi.rangeStartSeconds
+                                                                  : 0.0;
                     const double playheadTime =
                         hasTimeline ? timelineStateUi.positionSeconds : (currentFrame / 30.0);
-                    const float playheadXContent = (float)(playheadTime * zoomPixelsPerSecond);
+                    const float  playheadXContent =
+                        (float)((playheadTime - displayStartForZoom) * zoomPixelsPerSecond);
                     const float playheadVisible = playheadXContent - timelineScrollPixels;
 
                     const float zoomStep = 10.0f;
@@ -1369,7 +1442,8 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
                         const float newTotalWidth =
                             juce::jmax(timelineWidth, (float)(totalDuration * newZoom));
                         const float newMaxScroll = std::max(0.0f, newTotalWidth - timelineWidth);
-                        const float newPlayheadX = (float)(playheadTime * newZoom);
+                        const float newPlayheadX =
+                            (float)((playheadTime - displayStartForZoom) * newZoom);
                         timelineScrollPixels =
                             juce::jlimit(0.0f, newMaxScroll, newPlayheadX - playheadVisible);
                     }
@@ -1385,11 +1459,16 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
         drawList->AddRectFilled(canvasMin, canvasMax, bgColor);
         drawList->PushClipRect(canvasMin, canvasMax, true);
 
-        const double displayStart = 0.0;
-        const double displayEnd = totalDuration;
+        const double displayStart =
+            (hasTimeline && timelineStateUi.hasRange) ? timelineStateUi.rangeStartSeconds : 0.0;
+        const double displayEnd =
+            (hasTimeline && timelineStateUi.hasRange) ? timelineStateUi.rangeEndSeconds
+                                                      : totalDuration;
         const double displayRange = juce::jmax(1e-6, displayEnd - displayStart);
-        const double visibleStartTime = timelineScrollPixels / zoomPixelsPerSecond;
-        const double visibleEndTime = (timelineScrollPixels + timelineWidth) / zoomPixelsPerSecond;
+        const double visibleStartTime =
+            displayStart + (timelineScrollPixels / zoomPixelsPerSecond);
+        const double visibleEndTime =
+            displayStart + ((timelineScrollPixels + timelineWidth) / zoomPixelsPerSecond);
 
         if (displayRange > 0.0)
         {
@@ -1402,8 +1481,9 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
                 if (t < displayStart || t > displayEnd)
                     continue;
 
-                const float x =
-                    canvasMin.x + (float)(t * zoomPixelsPerSecond - timelineScrollPixels);
+                const float x = canvasMin.x +
+                                (float)((t - displayStart) * zoomPixelsPerSecond -
+                                        timelineScrollPixels);
                 drawList->AddLine(ImVec2(x, canvasMin.y), ImVec2(x, canvasMax.y), gridColor, 1.0f);
             }
         }
@@ -1418,7 +1498,8 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
                 double      targetTime = juce::jlimit<double>(
                     displayStart,
                     displayEnd,
-                    static_cast<double>(mouseXContent) / static_cast<double>(zoomPixelsPerSecond));
+                    displayStart +
+                        static_cast<double>(mouseXContent) / static_cast<double>(zoomPixelsPerSecond));
                 double targetValue = hasTimeline ? targetTime : targetTime * 30.0;
                 float  targetNormY =
                     juce::jlimit(0.0f, 1.0f, (mousePos.y - canvasMin.y) / timelineHeight);
@@ -1433,7 +1514,7 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
                     hasTimeline,
                     valueTolerance,
                     yTolerance,
-                    hasTimeline ? displayRange : 0.0);
+                    (hasTimeline && timelineStateUi.loopEnabled) ? displayRange : 0.0);
             }
         }
 
@@ -1481,8 +1562,9 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
                 if (keyTime < visibleStartTime - 0.1 || keyTime > visibleEndTime + 0.1)
                     continue;
 
-                const float x =
-                    canvasMin.x + (float)(keyTime * zoomPixelsPerSecond - timelineScrollPixels);
+                const float x = canvasMin.x +
+                                (float)((keyTime - displayStart) * zoomPixelsPerSecond -
+                                        timelineScrollPixels);
                 const float y =
                     canvasMin.y + juce::jlimit(0.0f, 1.0f, kf.normalizedY) * timelineHeight;
                 ImVec2 rectMin, rectMax;
@@ -1512,8 +1594,9 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
         {
             if (draggingKeyframeIndex >= 0 && draggingKeyframeIndex < (int)keyframesCopy.size())
             {
-                double newTime =
-                    (mousePos.x - canvasMin.x + timelineScrollPixels) / zoomPixelsPerSecond;
+                double newTime = displayStart +
+                                 (mousePos.x - canvasMin.x + timelineScrollPixels) /
+                                     zoomPixelsPerSecond;
                 newTime = juce::jlimit<double>(displayStart, displayEnd, newTime);
                 float newNormY =
                     juce::jlimit(0.0f, 1.0f, (mousePos.y - canvasMin.y) / timelineHeight);
@@ -1540,8 +1623,9 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
             if (keyTime < visibleStartTime - 0.1 || keyTime > visibleEndTime + 0.1)
                 continue;
 
-            const float x =
-                canvasMin.x + (float)(keyTime * zoomPixelsPerSecond - timelineScrollPixels);
+            const float x = canvasMin.x +
+                            (float)((keyTime - displayStart) * zoomPixelsPerSecond -
+                                    timelineScrollPixels);
             const float y = canvasMin.y + juce::jlimit(0.0f, 1.0f, kf.normalizedY) * timelineHeight;
 
             ImVec2 rectMin, rectMax;
@@ -1581,7 +1665,8 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
                 hasTimeline ? timelineStateUi.positionSeconds : (currentFrame / 30.0);
             playheadTime = juce::jlimit<double>(displayStart, displayEnd, playheadTime);
             const float playheadX =
-                canvasMin.x + (float)(playheadTime * zoomPixelsPerSecond - timelineScrollPixels);
+                canvasMin.x +
+                (float)((playheadTime - displayStart) * zoomPixelsPerSecond - timelineScrollPixels);
             drawList->AddLine(
                 ImVec2(playheadX, canvasMin.y),
                 ImVec2(playheadX, canvasMax.y),
@@ -1612,12 +1697,14 @@ void VideoDrawImpactModuleProcessor::drawParametersInNode(
 
     if (timelineStateUi.isValid)
     {
+        const double displayStart =
+            timelineStateUi.hasRange ? timelineStateUi.rangeStartSeconds : 0.0;
+        const double displayEnd = timelineStateUi.hasRange ? timelineStateUi.rangeEndSeconds
+                                                           : timelineStateUi.durationSeconds;
+        const double displayPos = juce::jlimit(
+            displayStart, displayEnd, timelineStateUi.positionSeconds);
         ThemeText(
-            juce::String::formatted(
-                "Time %.2fs / %.2fs",
-                timelineStateUi.positionSeconds,
-                timelineStateUi.durationSeconds)
-                .toRawUTF8(),
+            juce::String::formatted("Time %.2fs / %.2fs", displayPos, displayEnd).toRawUTF8(),
             theme.text.section_header);
     }
     else

@@ -212,6 +212,10 @@ struct NodePinHelpers
     std::function<void(const char* inLabel, int inChannel, const char* outLabel, int outChannel)>
                                                  drawParallelPins;
     std::function<void(ModuleProcessor* module)> drawIoPins;
+
+    // Draw input pin inline (just the pin circle, no label) - used for inline modulation pins
+    // Returns true if pin was drawn, false if callback not set
+    std::function<bool(int channel)> drawInlineInputPin;
 };
 
 class ModularSynthProcessor; // forward declaration
@@ -238,12 +242,29 @@ public:
     virtual juce::AudioProcessorValueTreeState& getAPVTS() = 0;
 
     // Optional UI hook for drawing parameters inside nodes (used by Preset Creator)
+    // pinHelpers is optional - when provided, modules can draw inline modulation pins
+    // Optional UI hook for drawing parameters inside nodes (used by Preset Creator)
+    // COMPATIBILITY: Restored 3-arg virtual for existing modules
     virtual void drawParametersInNode(
         float                                                   itemWidth,
         const std::function<bool(const juce::String& paramId)>& isParamModulated,
         const std::function<void()>&                            onModificationEnded)
     {
         juce::ignoreUnused(itemWidth, isParamModulated, onModificationEnded);
+    }
+
+    // NEW: 4-arg virtual allowing modules to use inline pins.
+    // Default implementation delegates to the 3-arg version.
+    virtual void drawParametersInNode(
+        float                                                   itemWidth,
+        const std::function<bool(const juce::String& paramId)>& isParamModulated,
+        const std::function<void()>&                            onModificationEnded,
+        const NodePinHelpers*                                   pinHelpers)
+    {
+        juce::ignoreUnused(pinHelpers);
+        // Delegate to the legacy 3-arg version so modules that override THAT (and not this) still
+        // get called
+        drawParametersInNode(itemWidth, isParamModulated, onModificationEnded);
     }
 
 #if defined(PRESET_CREATOR_UI)

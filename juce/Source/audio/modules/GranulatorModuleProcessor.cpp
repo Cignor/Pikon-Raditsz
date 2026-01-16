@@ -490,9 +490,10 @@ void GranulatorModuleProcessor::launchGrain(int grainIndex, float density, float
 }
 
 #if defined(PRESET_CREATOR_UI)
-void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     auto& ap = getAPVTS();
+    ImGui::PushID(this);
     ImGui::PushItemWidth(itemWidth);
 
     auto HelpMarker = [](const char* desc) {
@@ -505,12 +506,18 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
         }
     };
 
-    auto drawSlider = [&](const char* label, const juce::String& paramId, const juce::String& modId, float min, float max, const char* format, int flags = 0) {
+    auto drawSlider = [&](const char* label, const juce::String& paramId, const juce::String& modId, float min, float max, const char* format, int flags = 0, int channel = -1) {
         bool isMod = isParamModulated(modId);
         float value = isMod ? getLiveParamValueFor(modId, paramId + "_live", ap.getRawParameterValue(paramId)->load())
                             : ap.getRawParameterValue(paramId)->load();
         
         if (isMod) ImGui::BeginDisabled();
+        // Draw inline pin if channel is specified and pinHelpers is available
+        if (channel >= 0 && pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
         if (ImGui::SliderFloat(label, &value, min, max, format, flags))
             if (!isMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramId)) = value;
         if (!isMod) adjustParamOnWheel(ap.getParameter(paramId), paramId, value);
@@ -683,7 +690,7 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ImGui::Spacing();
 
     // === PARAMETERS ===
-    drawSlider("Density", paramIdDensity, paramIdDensityMod, 0.1f, 100.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic);
+    drawSlider("Density", paramIdDensity, paramIdDensityMod, 0.1f, 100.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic, 3); // Channel 3 = Density Mod
     bool relDens = relativeDensityModParam && relativeDensityModParam->load() > 0.5f;
     if (ImGui::Checkbox("Relative Density Mod", &relDens))
     {
@@ -694,7 +701,7 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ImGui::SameLine();
     HelpMarker("Relative: CV modulates around slider (0.5x-2x). Absolute: CV sets density directly (0.1-100 Hz).");
 
-    drawSlider("Size", paramIdSize, paramIdSizeMod, 5.0f, 500.0f, "%.0f ms", ImGuiSliderFlags_Logarithmic);
+    drawSlider("Size", paramIdSize, paramIdSizeMod, 5.0f, 500.0f, "%.0f ms", ImGuiSliderFlags_Logarithmic, 4); // Channel 4 = Size Mod
     bool relSize = relativeSizeModParam && relativeSizeModParam->load() > 0.5f;
     if (ImGui::Checkbox("Relative Size Mod", &relSize))
     {
@@ -705,7 +712,7 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ImGui::SameLine();
     HelpMarker("Relative: CV modulates around slider (0.1x-2x). Absolute: CV sets size directly (5-500 ms).");
 
-    drawSlider("Position", paramIdPosition, paramIdPositionMod, 0.0f, 1.0f, "%.2f");
+    drawSlider("Position", paramIdPosition, paramIdPositionMod, 0.0f, 1.0f, "%.2f", 0, 5); // Channel 5 = Position Mod
     bool relPos = relativePositionModParam && relativePositionModParam->load() > 0.5f;
     if (ImGui::Checkbox("Relative Position Mod", &relPos))
     {
@@ -717,7 +724,7 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     HelpMarker("Relative: CV adds offset to slider (±0.5). Absolute: CV sets position directly (0-1).");
 
     drawSlider("Spread", paramIdSpread, "", 0.0f, 1.0f, "%.2f");
-    drawSlider("Pitch", paramIdPitch, paramIdPitchMod, -24.0f, 24.0f, "%.1f st");
+    drawSlider("Pitch", paramIdPitch, paramIdPitchMod, -24.0f, 24.0f, "%.1f st", 0, 6); // Channel 6 = Pitch Mod
     bool relPitch = relativePitchModParam && relativePitchModParam->load() > 0.5f;
     if (ImGui::Checkbox("Relative Pitch Mod", &relPitch))
     {
@@ -730,25 +737,22 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
 
     drawSlider("Pitch Rand", paramIdPitchRandom, "", 0.0f, 12.0f, "%.1f st");
     drawSlider("Pan Rand", paramIdPanRandom, "", 0.0f, 1.0f, "%.2f");
-    drawSlider("Gate", paramIdGate, paramIdGateMod, 0.0f, 1.0f, "%.2f");
-    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f");
+    drawSlider("Gate", paramIdGate, paramIdGateMod, 0.0f, 1.0f, "%.2f", 0, 7); // Channel 7 = Gate Mod
+    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f", 0, 8); // Channel 8 = Mix Mod
     ImGui::SameLine();
     HelpMarker("Wet/dry balance (0=dry, 1=wet)");
 
     ImGui::PopItemWidth();
+    ImGui::PopID();
 }
 
 void GranulatorModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Only draw audio and trigger pins - modulation pins (channels 3-8) are now inline
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
     helpers.drawParallelPins("Trigger In", 2, nullptr, -1);
-    helpers.drawParallelPins("Density Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Size Mod", 4, nullptr, -1);
-    helpers.drawParallelPins("Position Mod", 5, nullptr, -1);
-    helpers.drawParallelPins("Pitch Mod", 6, nullptr, -1);
-    helpers.drawParallelPins("Gate Mod", 7, nullptr, -1);
-    helpers.drawParallelPins("Mix Mod", 8, nullptr, -1);
+    // Density Mod (ch 3), Size Mod (ch 4), Position Mod (ch 5), Pitch Mod (ch 6), Gate Mod (ch 7), Mix Mod (ch 8) are drawn inline in drawParametersInNode
 }
 #endif
 

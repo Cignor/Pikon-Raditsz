@@ -1099,6 +1099,45 @@ void ImGuiNodeEditorComponent::renderImGui()
     static int frameCounter = 0;
     frameCounter++;
 
+#ifndef AUDIO_ONLY_BUILD
+    // Auto-create VideoViewer module if canvas is empty (only output node exists)
+    // Check after a few frames to allow initialization, and only once per session
+    static bool hasCheckedForDefaultVideoViewer = false;
+    if (!hasCheckedForDefaultVideoViewer && synth != nullptr && frameCounter >= 10)
+    {
+        auto modules = synth->getModulesInfo();
+        bool hasVideoViewer = false;
+        for (const auto& modInfo : modules)
+        {
+            if (modInfo.second.toLowerCase() == "video_viewer")
+            {
+                hasVideoViewer = true;
+                break;
+            }
+        }
+
+        if (modules.empty() && !hasVideoViewer)
+        {
+            // Canvas is empty - create VideoViewer module by default
+            auto videoViewerNodeId = synth->addModule("video_viewer", false);
+            if (videoViewerNodeId.uid != 0)
+            {
+                auto videoViewerLogicalId = synth->getLogicalIdForNode(videoViewerNodeId);
+                // Position VideoViewer directly below the output node (same X, small Y offset)
+                // Output node is at (1250.0, 500.0), place VideoViewer at (1250.0, 650.0) - 150px
+                // below
+                pendingNodePositions[(int)videoViewerLogicalId] = ImVec2(1250.0f, 650.0f);
+                synth->commitChanges();
+                juce::Logger::writeToLog(
+                    "[AutoCreate] Auto-created VideoViewer module (logicalId=" +
+                    juce::String((int)videoViewerLogicalId) +
+                    ") at default position (1250.0, 650.0)");
+            }
+        }
+        hasCheckedForDefaultVideoViewer = true;
+    }
+#endif
+
     // --- Apply PatchGenerator Positions ---
     // If the PatchGenerator has created a new layout, apply it now.
     auto generatedPositions = PatchGenerator::getNodePositions();
@@ -2209,6 +2248,10 @@ void ImGuiNodeEditorComponent::renderImGui()
                 {
                     insertNodeAfterSelection("crop_video");
                 }
+                if (ImGui::MenuItem("Video Viewer"))
+                {
+                    insertNodeAfterSelection("video_viewer");
+                }
                 ImGui::EndMenu();
             }
 
@@ -2479,15 +2522,15 @@ void ImGuiNodeEditorComponent::renderImGui()
         ImGui::SameLine();
         ImGui::Separator();
         ImGui::SameLine();
-        
+
         // Get OSC device manager from parent component
         auto* presetCreator = dynamic_cast<PresetCreatorComponent*>(getParentComponent());
         if (presetCreator && presetCreator->oscDeviceManager && synth != nullptr)
         {
             auto& oscMgr = *presetCreator->oscDeviceManager;
-            auto enabledDevices = oscMgr.getEnabledDevices();
-            auto oscActivityState = synth->getOscActivityState();
-            
+            auto  enabledDevices = oscMgr.getEnabledDevices();
+            auto  oscActivityState = synth->getOscActivityState();
+
             // Check last message times from OscDeviceManager activity info
             auto activitySnapshot = oscMgr.getActivitySnapshot();
 
@@ -2509,16 +2552,17 @@ void ImGuiNodeEditorComponent::renderImGui()
                     ImGui::SameLine();
 
                     // Check if device has recent activity
-                    bool hasRecentActivity = false;
+                    bool         hasRecentActivity = false;
                     juce::String lastAddress;
-                    
+
                     auto activityIt = activitySnapshot.find(device.deviceIndex);
                     if (activityIt != activitySnapshot.end())
                     {
-                        const auto& activity = activityIt->second;
+                        const auto&  activity = activityIt->second;
                         juce::uint64 now = juce::Time::getMillisecondCounter();
                         juce::uint64 timeSinceMessage = now - activity.lastMessageTime;
-                        hasRecentActivity = (timeSinceMessage < 1000); // Active if message within 1 second
+                        hasRecentActivity =
+                            (timeSinceMessage < 1000); // Active if message within 1 second
                         lastAddress = activity.lastAddress;
                     }
 
@@ -3544,6 +3588,7 @@ void ImGuiNodeEditorComponent::renderImGui()
             addModuleButton("Chromakey", "chromakey");
             addModuleButton("Video Compositor", "video_compositor");
             addModuleButton("Video Draw Impact", "video_draw_impact");
+            addModuleButton("Video Viewer", "video_viewer");
             addModuleButton("Movement Detector", "movement_detector");
             addModuleButton("Object Detector", "object_detector");
             addModuleButton("Pose Estimator", "pose_estimator");
@@ -3881,6 +3926,7 @@ void ImGuiNodeEditorComponent::renderImGui()
             const juce::uint32  lid = mod.first;
             const juce::String& type = mod.second;
             juce::String        moduleLabel = type + " [lid=" + juce::String((int)lid) + "]";
+            NodePinHelpers      helpers;
 
             // Color-code modules by category (base colors)
             const auto moduleCategory = getModuleCategory(type);
@@ -3985,11 +4031,402 @@ void ImGuiNodeEditorComponent::renderImGui()
                 }
             }
 
-            // Inline parameter controls per module type
             if (synth != nullptr)
             {
+
                 if (auto* mp = synth->getModuleForLogical(lid))
                 {
+
+                    // Helper to draw right-aligned text within a node's content width
+                    // From imnodes examples (color_node_editor.cpp:353, save_load.cpp:77,
+                    // multi_editor.cpp:73): Use ImGui::Indent() for right-alignment - this is the
+                    // CORRECT ImNodes pattern!
+                    auto rightLabelWithinWidth = [&](const char* txt, float nodeContentWidth) {
+                        const ImVec2 textSize = ImGui::CalcTextSize(txt);
+
+                        // Indent by (nodeWidth - textWidth) to right-align the text
+                        // CRITICAL: Must call Unindent() to prevent indent from persisting!
+                        const float indentAmount = juce::jmax(0.0f, nodeContentWidth - textSize.x);
+                        ImGui::Indent(indentAmount);
+                        ImGui::TextUnformatted(txt);
+                        ImGui::Unindent(indentAmount); // Reset indent!
+                    };
+                    helpers.drawAudioInputPin = [&](const char* label, int channel) {
+                        int attr = encodePinId({lid, channel, true});
+                        seenAttrs.insert(attr);
+                        availableAttrs.insert(attr);
+
+                        // Get pin data type for color coding
+                        PinID        pinId = {lid, channel, true, false, ""};
+                        PinDataType  pinType = this->getPinDataTypeForPin(pinId);
+                        unsigned int pinColor = this->getImU32ForType(pinType);
+
+                        bool isConnected = connectedInputAttrs.count(attr) > 0;
+                        ImNodes::PushColorStyle(
+                            ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
+
+                        ImNodes::BeginInputAttribute(attr);
+#if JUCE_DEBUG
+                        ++gImNodesInputDepth;
+#endif
+                        ImGui::TextUnformatted(label);
+                        ImNodes::EndInputAttribute();
+#if JUCE_DEBUG
+                        --gImNodesInputDepth;
+                        jassert(gImNodesInputDepth >= 0);
+#endif
+
+                        // --- THIS IS THE DEFINITIVE FIX ---
+                        // Get the bounding box of the pin circle that was just drawn.
+                        ImVec2 pinMin = ImGui::GetItemRectMin();
+                        ImVec2 pinMax = ImGui::GetItemRectMax();
+                        // Calculate the exact center and cache it.
+                        float centerX = (pinMin.x + pinMax.x) * 0.5f;
+                        float centerY = (pinMin.y + pinMax.y) * 0.5f;
+                        // Cache pin position in GRID SPACE
+                        attrPositions[attr] = ImVec2(
+                            centerX - lastCanvasP0.x - lastEditorPanning.x,
+                            centerY - lastCanvasP0.y - lastEditorPanning.y);
+                        // --- END OF FIX ---
+
+                        ImNodes::PopColorStyle(); // Restore default color
+
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::BeginTooltip();
+                            if (isConnected)
+                            {
+                                ThemeText("Connected", theme.text.active);
+                                // Find which output this input is connected to and show source info
+                                for (const auto& c : synth->getConnectionsInfo())
+                                {
+                                    bool isConnectedToThisPin =
+                                        (!c.dstIsOutput && c.dstLogicalId == lid &&
+                                         c.dstChan == channel) ||
+                                        (c.dstIsOutput && lid == 0 && c.dstChan == channel);
+                                    if (isConnectedToThisPin)
+                                    {
+                                        // CRASH FIX: Verify module exists before accessing it
+                                        if (c.srcLogicalId != 0 && synth != nullptr)
+                                        {
+                                            bool moduleExists = false;
+                                            for (const auto& modInfo : synth->getModulesInfo())
+                                            {
+                                                if (modInfo.first == c.srcLogicalId)
+                                                {
+                                                    moduleExists = true;
+                                                    break;
+                                                }
+                                            }
+
+                                            if (moduleExists)
+                                            {
+                                                if (auto* srcMod =
+                                                        synth->getModuleForLogical(c.srcLogicalId))
+                                                {
+                                                    float value =
+                                                        srcMod->getOutputChannelValue(c.srcChan);
+                                                    ImGui::Text(
+                                                        "From %u:%d", c.srcLogicalId, c.srcChan);
+                                                    ImGui::Text("Value: %.3f", value);
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                ThemeText("Not Connected", theme.text.disabled);
+                            }
+                            // Show pin data type
+                            ImGui::Text("Type: %s", this->pinDataTypeToString(pinType));
+                            ImGui::EndTooltip();
+                        }
+                    };
+
+                    // NEW CLEAN OUTPUT PIN TEXT FUNCTION - FIXED SPACING
+                    helpers.drawAudioOutputPin = [&](const char* label, int channel) {
+                        const int attr = encodePinId({(juce::uint32)lid, channel, false});
+                        seenAttrs.insert(attr);
+                        availableAttrs.insert(attr);
+
+                        PinID        pinId = {(juce::uint32)lid, channel, false, false, ""};
+                        PinDataType  pinType = this->getPinDataTypeForPin(pinId);
+                        unsigned int pinColor = this->getImU32ForType(pinType);
+                        bool         isConnected = connectedOutputAttrs.count(attr) > 0;
+
+                        ImNodes::PushColorStyle(
+                            ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
+
+                        // EXACT OFFICIAL PATTERN: Text right-aligned, pin touches text edge
+                        ImNodes::BeginOutputAttribute(attr);
+#if JUCE_DEBUG
+                        ++gImNodesOutputDepth;
+#endif
+                        const float label_width = ImGui::CalcTextSize(label).x;
+                        ImGui::Indent(
+                            nodeContentWidth - label_width); // Right-align to content width
+                        ImGui::TextUnformatted(label);
+                        ImGui::Unindent(nodeContentWidth - label_width);
+                        ImNodes::EndOutputAttribute();
+#if JUCE_DEBUG
+                        --gImNodesOutputDepth;
+                        jassert(gImNodesOutputDepth >= 0);
+#endif
+
+                        // Cache pin center
+                        {
+                            ImVec2 pinMin = ImGui::GetItemRectMin();
+                            ImVec2 pinMax = ImGui::GetItemRectMax();
+                            float  centerY = (pinMin.y + pinMax.y) * 0.5f;
+                            float  x_pos = pinMax.x;
+                            // Cache pin position in GRID SPACE
+                            attrPositions[attr] = ImVec2(
+                                x_pos - lastCanvasP0.x - lastEditorPanning.x,
+                                centerY - lastCanvasP0.y - lastEditorPanning.y);
+                        }
+
+                        ImNodes::PopColorStyle();
+
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::BeginTooltip();
+                            if (isConnected)
+                            {
+                                ThemeText("Connected", theme.text.active);
+                            }
+                            else
+                            {
+                                ThemeText("Not Connected", theme.text.disabled);
+                            }
+                            ImGui::Text("Type: %s", this->pinDataTypeToString(pinType));
+                            if (auto* mp = synth->getModuleForLogical(lid))
+                            {
+                                float value = mp->getOutputChannelValue(channel);
+                                ImGui::Text("Value: %.3f", value);
+                            }
+                            ImGui::EndTooltip();
+                        }
+                    };
+
+                    // Manual layout: align output labels with pins using SameLine
+                    helpers.drawParallelPins = [&](const char* inLabel,
+                                                   int         inChannel,
+                                                   const char* outLabel,
+                                                   int         outChannel) {
+                        ImGui::PushID((inChannel << 16) ^ outChannel ^ lid);
+
+                        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+                        const float labelToPinGap = spacing * 0.3f;
+                        const float rowStartX = ImGui::GetCursorPosX();
+
+                        bool hasItemOnLine = false;
+
+                        if (inLabel != nullptr)
+                        {
+                            int inAttr = encodePinId({lid, inChannel, true});
+                            seenAttrs.insert(inAttr);
+                            availableAttrs.insert(inAttr);
+                            PinID        pinId = {lid, inChannel, true, false, ""};
+                            PinDataType  pinType = this->getPinDataTypeForPin(pinId);
+                            unsigned int pinColor = this->getImU32ForType(pinType);
+                            bool         isConnected = connectedInputAttrs.count(inAttr) > 0;
+                            ImNodes::PushColorStyle(
+                                ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
+                            ImNodes::BeginInputAttribute(inAttr);
+#if JUCE_DEBUG
+                            ++gImNodesInputDepth;
+#endif
+                            ImGui::TextUnformatted(inLabel);
+                            ImNodes::EndInputAttribute();
+#if JUCE_DEBUG
+                            --gImNodesInputDepth;
+                            jassert(gImNodesInputDepth >= 0);
+#endif
+                            ImNodes::PopColorStyle();
+
+                            // --- CACHE PIN POSITION FOR CUT GESTURE ---
+                            {
+                                ImVec2 pinMin = ImGui::GetItemRectMin();
+                                ImVec2 pinMax = ImGui::GetItemRectMax();
+                                float  centerY = (pinMin.y + pinMax.y) * 0.5f;
+                                // Input pins are on the left
+                                // Cache pin position in GRID SPACE
+                                attrPositions[inAttr] = ImVec2(
+                                    pinMin.x - lastCanvasP0.x - lastEditorPanning.x,
+                                    centerY - lastCanvasP0.y - lastEditorPanning.y);
+                            }
+
+                            hasItemOnLine = true;
+                        }
+
+                        if (!hasItemOnLine && outLabel != nullptr)
+                        {
+                            ImGui::Dummy(ImVec2(0.0f, 0.0f));
+                            hasItemOnLine = true;
+                        }
+
+                        if (outLabel != nullptr)
+                        {
+                            const float textW = ImGui::CalcTextSize(outLabel).x;
+                            const float desiredStart =
+                                rowStartX +
+                                juce::jmax(0.0f, nodeContentWidth - textW - labelToPinGap);
+                            if (hasItemOnLine)
+                                ImGui::SameLine(0.0f, spacing);
+                            ImGui::SetCursorPosX(desiredStart);
+
+                            int outAttr = encodePinId({lid, outChannel, false});
+                            seenAttrs.insert(outAttr);
+                            availableAttrs.insert(outAttr);
+                            PinID        pinId = {lid, outChannel, false, false, ""};
+                            PinDataType  pinType = this->getPinDataTypeForPin(pinId);
+                            unsigned int pinColor = this->getImU32ForType(pinType);
+                            bool         isConnected = connectedOutputAttrs.count(outAttr) > 0;
+                            ImNodes::PushColorStyle(
+                                ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
+#if JUCE_DEBUG
+                            ++gImNodesOutputDepth;
+#endif
+                            ImNodes::BeginOutputAttribute(outAttr);
+                            ImGui::TextUnformatted(outLabel);
+                            ImNodes::EndOutputAttribute();
+#if JUCE_DEBUG
+                            --gImNodesOutputDepth;
+                            jassert(gImNodesOutputDepth >= 0);
+#endif
+                            ImNodes::PopColorStyle();
+
+                            ImVec2      pinMin = ImGui::GetItemRectMin();
+                            ImVec2      pinMax = ImGui::GetItemRectMax();
+                            const float yCenter = pinMin.y + (pinMax.y - pinMin.y) * 0.5f;
+                            const float xPos = pinMax.x;
+                            // Cache pin position in GRID SPACE
+                            attrPositions[outAttr] = ImVec2(
+                                xPos - lastCanvasP0.x - lastEditorPanning.x,
+                                yCenter - lastCanvasP0.y - lastEditorPanning.y);
+                        }
+
+                        if (inLabel == nullptr && outLabel == nullptr)
+                            ImGui::Dummy(ImVec2(0.0f, ImGui::GetTextLineHeight()));
+
+                        ImGui::PopID();
+                    };
+
+                    // Draw input pin inline (just the pin circle) - used for inline modulation pins
+                    // This allows modules to draw pins next to their sliders with SameLine()
+                    helpers.drawInlineInputPin = [&](int channel) -> bool {
+                        int attr = encodePinId({lid, channel, true});
+                        seenAttrs.insert(attr);
+                        availableAttrs.insert(attr);
+
+                        // Get pin data type for color coding
+                        PinID        pinId = {lid, channel, true, false, ""};
+                        PinDataType  pinType = this->getPinDataTypeForPin(pinId);
+                        unsigned int pinColor = this->getImU32ForType(pinType);
+
+                        bool isConnected = connectedInputAttrs.count(attr) > 0;
+                        ImNodes::PushColorStyle(
+                            ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
+
+                        ImNodes::BeginInputAttribute(attr);
+#if JUCE_DEBUG
+                        ++gImNodesInputDepth;
+#endif
+                        // Use small dummy instead of text - just want the pin circle
+                        ImGui::Dummy(ImVec2(1, ImGui::GetTextLineHeight()));
+                        ImNodes::EndInputAttribute();
+#if JUCE_DEBUG
+                        --gImNodesInputDepth;
+                        jassert(gImNodesInputDepth >= 0);
+#endif
+
+                        // Cache pin position in GRID SPACE
+                        ImVec2 pinMin = ImGui::GetItemRectMin();
+                        ImVec2 pinMax = ImGui::GetItemRectMax();
+                        float  centerX = (pinMin.x + pinMax.x) * 0.5f;
+                        float  centerY = (pinMin.y + pinMax.y) * 0.5f;
+                        attrPositions[attr] = ImVec2(
+                            centerX - lastCanvasP0.x - lastEditorPanning.x,
+                            centerY - lastCanvasP0.y - lastEditorPanning.y);
+
+                        ImNodes::PopColorStyle();
+                        return true;
+                    };
+
+                    // --- DYNAMIC PIN FIX ---
+                    // Add a new helper that uses dynamic pin information from modules
+                    helpers.drawIoPins = [&](ModuleProcessor* module) {
+                        if (!module)
+                            return;
+                        const auto logicalId = module->getLogicalId();
+                        const auto moduleType = synth->getModuleTypeForLogical(logicalId);
+
+                        if (module->usesCustomPinLayout())
+                        {
+                            module->drawIoPins(helpers);
+                            return;
+                        }
+
+                        // 1. Get dynamic pins from the module itself.
+                        auto dynamicInputs = module->getDynamicInputPins();
+                        auto dynamicOutputs = module->getDynamicOutputPins();
+
+                        // 2. Get static pins from the database as a fallback.
+                        const auto& pinDb = getModulePinDatabase();
+                        auto        pinInfoIt = pinDb.find(moduleType.toLowerCase());
+                        const bool  hasStaticPinInfo = (pinInfoIt != pinDb.end());
+                        const auto& staticPinInfo =
+                            hasStaticPinInfo ? pinInfoIt->second : ModulePinInfo{};
+
+                        // 3. If the module has dynamic pins, use the new system
+                        const bool hasDynamicPins =
+                            !dynamicInputs.empty() || !dynamicOutputs.empty();
+
+                        if (hasDynamicPins)
+                        {
+                            // Draw inputs (dynamic if available, otherwise static)
+                            if (!dynamicInputs.empty())
+                            {
+                                for (const auto& pin : dynamicInputs)
+                                {
+                                    helpers.drawAudioInputPin(pin.name.toRawUTF8(), pin.channel);
+                                }
+                            }
+                            else
+                            {
+                                for (const auto& pin : staticPinInfo.audioIns)
+                                {
+                                    helpers.drawAudioInputPin(pin.name.toRawUTF8(), pin.channel);
+                                }
+                            }
+
+                            // Draw outputs (dynamic if available, otherwise static)
+                            if (!dynamicOutputs.empty())
+                            {
+                                for (const auto& pin : dynamicOutputs)
+                                {
+                                    helpers.drawAudioOutputPin(pin.name.toRawUTF8(), pin.channel);
+                                }
+                            }
+                            else
+                            {
+                                for (const auto& pin : staticPinInfo.audioOuts)
+                                {
+                                    helpers.drawAudioOutputPin(pin.name.toRawUTF8(), pin.channel);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // 4. Otherwise, fall back to the module's custom drawIoPins
+                            // implementation
+                            module->drawIoPins(helpers);
+                        }
+                    };
+                    // --- END OF DYNAMIC PIN FIX ---
 #ifndef AUDIO_ONLY_BUILD
                     // Debug logging for ObjectDetectorModule (only once per second to reduce
                     // flooding)
@@ -4064,7 +4501,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                         // We pass a modified onModificationEnded to avoid creating undo states
                         // while dragging.
                         sampleLoader->drawParametersInNode(
-                            nodeContentWidth, isParamModulated, onModificationEnded);
+                            nodeContentWidth, isParamModulated, onModificationEnded, &helpers);
 
                         // Now, handle the spectrogram texture and drawing
                         juce::OpenGLTexture* texturePtr = nullptr;
@@ -4255,14 +4692,15 @@ void ImGuiNodeEditorComponent::renderImGui()
 
                         // --- Device Type Selection (ASIO, Windows Audio, etc.) ---
                         const auto& deviceTypes = deviceManager.getAvailableDeviceTypes();
-                        
+
                         // Get per-instance device type (not global)
                         juce::String instanceDeviceType = audioIn->getSelectedDeviceType();
                         juce::String globalDeviceType = deviceManager.getCurrentAudioDeviceType();
-                        
+
                         // Use instance type if set, otherwise use global as default
-                        juce::String currentDeviceType = instanceDeviceType.isEmpty() ? globalDeviceType : instanceDeviceType;
-                        
+                        juce::String currentDeviceType =
+                            instanceDeviceType.isEmpty() ? globalDeviceType : instanceDeviceType;
+
                         // Build device type list
                         juce::StringArray deviceTypeNames;
                         for (int i = 0; i < deviceTypes.size(); ++i)
@@ -4270,54 +4708,64 @@ void ImGuiNodeEditorComponent::renderImGui()
                             if (auto* type = deviceTypes[i])
                                 deviceTypeNames.add(type->getTypeName());
                         }
-                        
+
                         std::vector<const char*> deviceTypeItems;
                         for (const auto& name : deviceTypeNames)
                             deviceTypeItems.push_back(name.toRawUTF8());
-                        
+
                         int currentDeviceTypeIndex = deviceTypeNames.indexOf(currentDeviceType);
                         if (currentDeviceTypeIndex < 0)
                             currentDeviceTypeIndex = 0;
 
                         ImGui::PushItemWidth(nodeContentWidth);
-                        
+
                         // Get the current global device type (user sets this in Audio Settings)
-                        juce::String currentGlobalDeviceType = deviceManager.getCurrentAudioDeviceType();
+                        juce::String currentGlobalDeviceType =
+                            deviceManager.getCurrentAudioDeviceType();
                         if (currentGlobalDeviceType.isEmpty() && deviceTypes.size() > 0)
                         {
                             if (auto* firstType = deviceTypes[0])
                                 currentGlobalDeviceType = firstType->getTypeName();
                         }
-                        
+
                         // CRITICAL: Check if we're using ASIO
                         bool isASIO = (currentGlobalDeviceType == "ASIO");
-                        
+
                         if (isASIO)
                         {
                             // ASIO: Cannot select separate device - uses global input
-                            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "ASIO Mode - Using Global Input");
-                            ImGui::TextWrapped("ASIO drivers don't allow multiple connections. This node uses the global audio input from Audio Settings.");
-                            
+                            ImGui::TextColored(
+                                ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "ASIO Mode - Using Global Input");
+                            ImGui::TextWrapped(
+                                "ASIO drivers don't allow multiple connections. This node uses the "
+                                "global audio input from Audio Settings.");
+
                             if (auto* globalDevice = deviceManager.getCurrentAudioDevice())
                             {
-                                ImGui::Text("Global Device: %s", globalDevice->getName().toRawUTF8());
-                                ImGui::Text("Sample Rate: %.0f Hz", globalDevice->getCurrentSampleRate());
-                                ImGui::Text("Buffer Size: %d samples", globalDevice->getCurrentBufferSizeSamples());
+                                ImGui::Text(
+                                    "Global Device: %s", globalDevice->getName().toRawUTF8());
+                                ImGui::Text(
+                                    "Sample Rate: %.0f Hz", globalDevice->getCurrentSampleRate());
+                                ImGui::Text(
+                                    "Buffer Size: %d samples",
+                                    globalDevice->getCurrentBufferSizeSamples());
                             }
                             else
                             {
-                                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No global ASIO device open!");
-                                ImGui::TextWrapped("Please open an ASIO device in Audio Settings first.");
+                                ImGui::TextColored(
+                                    ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No global ASIO device open!");
+                                ImGui::TextWrapped(
+                                    "Please open an ASIO device in Audio Settings first.");
                             }
-                            
+
                             // Clear any stored device name to prevent conflicts
                             if (!audioIn->getSelectedDeviceName().isEmpty())
                             {
                                 audioIn->setSelectedDeviceName("");
                             }
-                            
-                            // Still allow selecting which input channels to use from the global device
-                            // (This is handled by the channel mapping below)
+
+                            // Still allow selecting which input channels to use from the global
+                            // device (This is handled by the channel mapping below)
                         }
                         else
                         {
@@ -4335,22 +4783,22 @@ void ImGuiNodeEditorComponent::renderImGui()
                                     }
                                 }
                             }
-                            
-                            // If node has a stored device type, use that (for backward compatibility)
-                            // Otherwise use the global device type
+
+                            // If node has a stored device type, use that (for backward
+                            // compatibility) Otherwise use the global device type
                             juce::String nodeDeviceType = audioIn->getSelectedDeviceType();
                             if (nodeDeviceType.isEmpty())
                             {
                                 nodeDeviceType = currentGlobalDeviceType;
                                 audioIn->setSelectedDeviceType(nodeDeviceType);
                             }
-                            
+
                             // If node's device type doesn't match global, update it to match global
                             if (nodeDeviceType != currentGlobalDeviceType)
                             {
                                 nodeDeviceType = currentGlobalDeviceType;
                                 audioIn->setSelectedDeviceType(nodeDeviceType);
-                                
+
                                 // Re-find device type object
                                 currentDeviceTypeObj = nullptr;
                                 for (int i = 0; i < deviceTypes.size(); ++i)
@@ -4365,7 +4813,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                                     }
                                 }
                             }
-                            
+
                             // Scan for devices in current type
                             if (currentDeviceTypeObj)
                                 currentDeviceTypeObj->scanForDevices();
@@ -4379,14 +4827,15 @@ void ImGuiNodeEditorComponent::renderImGui()
                             std::vector<const char*> inputDeviceItems;
                             for (const auto& name : availableInputDevices)
                                 inputDeviceItems.push_back(name.toRawUTF8());
-                            
+
                             // Get the per-instance device name
                             juce::String instanceDeviceName = audioIn->getSelectedDeviceName();
-                            
-                            int currentInputDeviceIndex = availableInputDevices.indexOf(instanceDeviceName);
+
+                            int currentInputDeviceIndex =
+                                availableInputDevices.indexOf(instanceDeviceName);
                             if (currentInputDeviceIndex < 0)
                                 currentInputDeviceIndex = 0;
-                            
+
                             if (ImGui::Combo(
                                     "Input Device",
                                     &currentInputDeviceIndex,
@@ -4396,10 +4845,13 @@ void ImGuiNodeEditorComponent::renderImGui()
                                 if (currentInputDeviceIndex < availableInputDevices.size())
                                 {
                                     // Store per-instance device name and type
-                                    juce::String selectedDevice = availableInputDevices[currentInputDeviceIndex];
-                                    audioIn->setSelectedDeviceType(nodeDeviceType); // Use current global type
-                                    audioIn->setSelectedDeviceName(selectedDevice); // This will call updateDevice()
-                                    
+                                    juce::String selectedDevice =
+                                        availableInputDevices[currentInputDeviceIndex];
+                                    audioIn->setSelectedDeviceType(
+                                        nodeDeviceType); // Use current global type
+                                    audioIn->setSelectedDeviceName(
+                                        selectedDevice); // This will call updateDevice()
+
                                     onModificationEnded();
                                 }
                             }
@@ -4411,11 +4863,14 @@ void ImGuiNodeEditorComponent::renderImGui()
                                 {
                                     const int maxIndex = (int)availableInputDevices.size() - 1;
                                     int       newIndex = juce::jlimit(
-                                        0, maxIndex, currentInputDeviceIndex + (wheel > 0.0f ? -1 : 1));
+                                        0,
+                                        maxIndex,
+                                        currentInputDeviceIndex + (wheel > 0.0f ? -1 : 1));
                                     if (newIndex != currentInputDeviceIndex)
                                     {
                                         currentInputDeviceIndex = newIndex;
-                                        juce::String selectedDevice = availableInputDevices[newIndex];
+                                        juce::String selectedDevice =
+                                            availableInputDevices[newIndex];
                                         audioIn->setSelectedDeviceType(nodeDeviceType);
                                         audioIn->setSelectedDeviceName(selectedDevice);
                                         onModificationEnded();
@@ -4980,7 +5435,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                     else
                     {
                         mp->drawParametersInNode(
-                            nodeContentWidth, isParamModulated, onModificationEnded);
+                            nodeContentWidth, isParamModulated, onModificationEnded, &helpers);
                     }
 #if JUCE_DEBUG
                     parameterStackGuard.validate(moduleLabel + "::drawParametersInNode");
@@ -4991,345 +5446,6 @@ void ImGuiNodeEditorComponent::renderImGui()
             }
 
             // IO per module type via helpers
-            NodePinHelpers helpers;
-
-            // Helper to draw right-aligned text within a node's content width
-            // From imnodes examples (color_node_editor.cpp:353, save_load.cpp:77,
-            // multi_editor.cpp:73): Use ImGui::Indent() for right-alignment - this is the CORRECT
-            // ImNodes pattern!
-            auto rightLabelWithinWidth = [&](const char* txt, float nodeContentWidth) {
-                const ImVec2 textSize = ImGui::CalcTextSize(txt);
-
-                // Indent by (nodeWidth - textWidth) to right-align the text
-                // CRITICAL: Must call Unindent() to prevent indent from persisting!
-                const float indentAmount = juce::jmax(0.0f, nodeContentWidth - textSize.x);
-                ImGui::Indent(indentAmount);
-                ImGui::TextUnformatted(txt);
-                ImGui::Unindent(indentAmount); // Reset indent!
-            };
-            helpers.drawAudioInputPin = [&](const char* label, int channel) {
-                int attr = encodePinId({lid, channel, true});
-                seenAttrs.insert(attr);
-                availableAttrs.insert(attr);
-
-                // Get pin data type for color coding
-                PinID        pinId = {lid, channel, true, false, ""};
-                PinDataType  pinType = this->getPinDataTypeForPin(pinId);
-                unsigned int pinColor = this->getImU32ForType(pinType);
-
-                bool isConnected = connectedInputAttrs.count(attr) > 0;
-                ImNodes::PushColorStyle(ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
-
-                ImNodes::BeginInputAttribute(attr);
-#if JUCE_DEBUG
-                ++gImNodesInputDepth;
-#endif
-                ImGui::TextUnformatted(label);
-                ImNodes::EndInputAttribute();
-#if JUCE_DEBUG
-                --gImNodesInputDepth;
-                jassert(gImNodesInputDepth >= 0);
-#endif
-
-                // --- THIS IS THE DEFINITIVE FIX ---
-                // Get the bounding box of the pin circle that was just drawn.
-                ImVec2 pinMin = ImGui::GetItemRectMin();
-                ImVec2 pinMax = ImGui::GetItemRectMax();
-                // Calculate the exact center and cache it.
-                float centerX = (pinMin.x + pinMax.x) * 0.5f;
-                float centerY = (pinMin.y + pinMax.y) * 0.5f;
-                // Cache pin position in GRID SPACE
-                attrPositions[attr] = ImVec2(
-                    centerX - lastCanvasP0.x - lastEditorPanning.x,
-                    centerY - lastCanvasP0.y - lastEditorPanning.y);
-                // --- END OF FIX ---
-
-                ImNodes::PopColorStyle(); // Restore default color
-
-                if (ImGui::IsItemHovered())
-                {
-                    ImGui::BeginTooltip();
-                    if (isConnected)
-                    {
-                        ThemeText("Connected", theme.text.active);
-                        // Find which output this input is connected to and show source info
-                        for (const auto& c : synth->getConnectionsInfo())
-                        {
-                            bool isConnectedToThisPin =
-                                (!c.dstIsOutput && c.dstLogicalId == lid && c.dstChan == channel) ||
-                                (c.dstIsOutput && lid == 0 && c.dstChan == channel);
-                            if (isConnectedToThisPin)
-                            {
-                                // CRASH FIX: Verify module exists before accessing it
-                                if (c.srcLogicalId != 0 && synth != nullptr)
-                                {
-                                    bool moduleExists = false;
-                                    for (const auto& modInfo : synth->getModulesInfo())
-                                    {
-                                        if (modInfo.first == c.srcLogicalId)
-                                        {
-                                            moduleExists = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if (moduleExists)
-                                    {
-                                        if (auto* srcMod =
-                                                synth->getModuleForLogical(c.srcLogicalId))
-                                        {
-                                            float value = srcMod->getOutputChannelValue(c.srcChan);
-                                            ImGui::Text("From %u:%d", c.srcLogicalId, c.srcChan);
-                                            ImGui::Text("Value: %.3f", value);
-                                        }
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        ThemeText("Not Connected", theme.text.disabled);
-                    }
-                    // Show pin data type
-                    ImGui::Text("Type: %s", this->pinDataTypeToString(pinType));
-                    ImGui::EndTooltip();
-                }
-            };
-
-            // NEW CLEAN OUTPUT PIN TEXT FUNCTION - FIXED SPACING
-            helpers.drawAudioOutputPin = [&](const char* label, int channel) {
-                const int attr = encodePinId({(juce::uint32)lid, channel, false});
-                seenAttrs.insert(attr);
-                availableAttrs.insert(attr);
-
-                PinID        pinId = {(juce::uint32)lid, channel, false, false, ""};
-                PinDataType  pinType = this->getPinDataTypeForPin(pinId);
-                unsigned int pinColor = this->getImU32ForType(pinType);
-                bool         isConnected = connectedOutputAttrs.count(attr) > 0;
-
-                ImNodes::PushColorStyle(ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
-
-                // EXACT OFFICIAL PATTERN: Text right-aligned, pin touches text edge
-                ImNodes::BeginOutputAttribute(attr);
-#if JUCE_DEBUG
-                ++gImNodesOutputDepth;
-#endif
-                const float label_width = ImGui::CalcTextSize(label).x;
-                ImGui::Indent(nodeContentWidth - label_width); // Right-align to content width
-                ImGui::TextUnformatted(label);
-                ImGui::Unindent(nodeContentWidth - label_width);
-                ImNodes::EndOutputAttribute();
-#if JUCE_DEBUG
-                --gImNodesOutputDepth;
-                jassert(gImNodesOutputDepth >= 0);
-#endif
-
-                // Cache pin center
-                {
-                    ImVec2 pinMin = ImGui::GetItemRectMin();
-                    ImVec2 pinMax = ImGui::GetItemRectMax();
-                    float  centerY = (pinMin.y + pinMax.y) * 0.5f;
-                    float  x_pos = pinMax.x;
-                    // Cache pin position in GRID SPACE
-                    attrPositions[attr] = ImVec2(
-                        x_pos - lastCanvasP0.x - lastEditorPanning.x,
-                        centerY - lastCanvasP0.y - lastEditorPanning.y);
-                }
-
-                ImNodes::PopColorStyle();
-
-                if (ImGui::IsItemHovered())
-                {
-                    ImGui::BeginTooltip();
-                    if (isConnected)
-                    {
-                        ThemeText("Connected", theme.text.active);
-                    }
-                    else
-                    {
-                        ThemeText("Not Connected", theme.text.disabled);
-                    }
-                    ImGui::Text("Type: %s", this->pinDataTypeToString(pinType));
-                    if (auto* mp = synth->getModuleForLogical(lid))
-                    {
-                        float value = mp->getOutputChannelValue(channel);
-                        ImGui::Text("Value: %.3f", value);
-                    }
-                    ImGui::EndTooltip();
-                }
-            };
-
-            // Manual layout: align output labels with pins using SameLine
-            helpers.drawParallelPins =
-                [&](const char* inLabel, int inChannel, const char* outLabel, int outChannel) {
-                    ImGui::PushID((inChannel << 16) ^ outChannel ^ lid);
-
-                    const float spacing = ImGui::GetStyle().ItemSpacing.x;
-                    const float labelToPinGap = spacing * 0.3f;
-                    const float rowStartX = ImGui::GetCursorPosX();
-
-                    bool hasItemOnLine = false;
-
-                    if (inLabel != nullptr)
-                    {
-                        int inAttr = encodePinId({lid, inChannel, true});
-                        seenAttrs.insert(inAttr);
-                        availableAttrs.insert(inAttr);
-                        PinID        pinId = {lid, inChannel, true, false, ""};
-                        PinDataType  pinType = this->getPinDataTypeForPin(pinId);
-                        unsigned int pinColor = this->getImU32ForType(pinType);
-                        bool         isConnected = connectedInputAttrs.count(inAttr) > 0;
-                        ImNodes::PushColorStyle(
-                            ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
-                        ImNodes::BeginInputAttribute(inAttr);
-#if JUCE_DEBUG
-                        ++gImNodesInputDepth;
-#endif
-                        ImGui::TextUnformatted(inLabel);
-                        ImNodes::EndInputAttribute();
-#if JUCE_DEBUG
-                        --gImNodesInputDepth;
-                        jassert(gImNodesInputDepth >= 0);
-#endif
-                        ImNodes::PopColorStyle();
-
-                        // --- CACHE PIN POSITION FOR CUT GESTURE ---
-                        {
-                            ImVec2 pinMin = ImGui::GetItemRectMin();
-                            ImVec2 pinMax = ImGui::GetItemRectMax();
-                            float  centerY = (pinMin.y + pinMax.y) * 0.5f;
-                            // Input pins are on the left
-                            // Cache pin position in GRID SPACE
-                            attrPositions[inAttr] = ImVec2(
-                                pinMin.x - lastCanvasP0.x - lastEditorPanning.x,
-                                centerY - lastCanvasP0.y - lastEditorPanning.y);
-                        }
-
-                        hasItemOnLine = true;
-                    }
-
-                    if (!hasItemOnLine && outLabel != nullptr)
-                    {
-                        ImGui::Dummy(ImVec2(0.0f, 0.0f));
-                        hasItemOnLine = true;
-                    }
-
-                    if (outLabel != nullptr)
-                    {
-                        const float textW = ImGui::CalcTextSize(outLabel).x;
-                        const float desiredStart =
-                            rowStartX + juce::jmax(0.0f, nodeContentWidth - textW - labelToPinGap);
-                        if (hasItemOnLine)
-                            ImGui::SameLine(0.0f, spacing);
-                        ImGui::SetCursorPosX(desiredStart);
-
-                        int outAttr = encodePinId({lid, outChannel, false});
-                        seenAttrs.insert(outAttr);
-                        availableAttrs.insert(outAttr);
-                        PinID        pinId = {lid, outChannel, false, false, ""};
-                        PinDataType  pinType = this->getPinDataTypeForPin(pinId);
-                        unsigned int pinColor = this->getImU32ForType(pinType);
-                        bool         isConnected = connectedOutputAttrs.count(outAttr) > 0;
-                        ImNodes::PushColorStyle(
-                            ImNodesCol_Pin, isConnected ? colPinConnected : pinColor);
-#if JUCE_DEBUG
-                        ++gImNodesOutputDepth;
-#endif
-                        ImNodes::BeginOutputAttribute(outAttr);
-                        ImGui::TextUnformatted(outLabel);
-                        ImNodes::EndOutputAttribute();
-#if JUCE_DEBUG
-                        --gImNodesOutputDepth;
-                        jassert(gImNodesOutputDepth >= 0);
-#endif
-                        ImNodes::PopColorStyle();
-
-                        ImVec2      pinMin = ImGui::GetItemRectMin();
-                        ImVec2      pinMax = ImGui::GetItemRectMax();
-                        const float yCenter = pinMin.y + (pinMax.y - pinMin.y) * 0.5f;
-                        const float xPos = pinMax.x;
-                        // Cache pin position in GRID SPACE
-                        attrPositions[outAttr] = ImVec2(
-                            xPos - lastCanvasP0.x - lastEditorPanning.x,
-                            yCenter - lastCanvasP0.y - lastEditorPanning.y);
-                    }
-
-                    if (inLabel == nullptr && outLabel == nullptr)
-                        ImGui::Dummy(ImVec2(0.0f, ImGui::GetTextLineHeight()));
-
-                    ImGui::PopID();
-                };
-
-            // --- DYNAMIC PIN FIX ---
-            // Add a new helper that uses dynamic pin information from modules
-            helpers.drawIoPins = [&](ModuleProcessor* module) {
-                if (!module)
-                    return;
-                const auto logicalId = module->getLogicalId();
-                const auto moduleType = synth->getModuleTypeForLogical(logicalId);
-
-                if (module->usesCustomPinLayout())
-                {
-                    module->drawIoPins(helpers);
-                    return;
-                }
-
-                // 1. Get dynamic pins from the module itself.
-                auto dynamicInputs = module->getDynamicInputPins();
-                auto dynamicOutputs = module->getDynamicOutputPins();
-
-                // 2. Get static pins from the database as a fallback.
-                const auto& pinDb = getModulePinDatabase();
-                auto        pinInfoIt = pinDb.find(moduleType.toLowerCase());
-                const bool  hasStaticPinInfo = (pinInfoIt != pinDb.end());
-                const auto& staticPinInfo = hasStaticPinInfo ? pinInfoIt->second : ModulePinInfo{};
-
-                // 3. If the module has dynamic pins, use the new system
-                const bool hasDynamicPins = !dynamicInputs.empty() || !dynamicOutputs.empty();
-
-                if (hasDynamicPins)
-                {
-                    // Draw inputs (dynamic if available, otherwise static)
-                    if (!dynamicInputs.empty())
-                    {
-                        for (const auto& pin : dynamicInputs)
-                        {
-                            helpers.drawAudioInputPin(pin.name.toRawUTF8(), pin.channel);
-                        }
-                    }
-                    else
-                    {
-                        for (const auto& pin : staticPinInfo.audioIns)
-                        {
-                            helpers.drawAudioInputPin(pin.name.toRawUTF8(), pin.channel);
-                        }
-                    }
-
-                    // Draw outputs (dynamic if available, otherwise static)
-                    if (!dynamicOutputs.empty())
-                    {
-                        for (const auto& pin : dynamicOutputs)
-                        {
-                            helpers.drawAudioOutputPin(pin.name.toRawUTF8(), pin.channel);
-                        }
-                    }
-                    else
-                    {
-                        for (const auto& pin : staticPinInfo.audioOuts)
-                        {
-                            helpers.drawAudioOutputPin(pin.name.toRawUTF8(), pin.channel);
-                        }
-                    }
-                }
-                else
-                {
-                    // 4. Otherwise, fall back to the module's custom drawIoPins implementation
-                    module->drawIoPins(helpers);
-                }
-            };
-            // --- END OF DYNAMIC PIN FIX ---
 
             // Delegate per-module IO pin drawing
             if (synth != nullptr)
@@ -6678,15 +6794,15 @@ void ImGuiNodeEditorComponent::renderImGui()
         }
     }
     // ================== END MIDI PLAYER QUICK CONNECT ==================
-    
+
     // ================== MIDI CV QUICK CONNECT LOGIC ==================
     // Poll all MIDI CV modules for connection requests
     if (synth != nullptr)
     {
         for (const auto& modInfo : synth->getModulesInfo())
         {
-            if (auto* midiCV = dynamic_cast<MIDICVModuleProcessor*>(
-                    synth->getModuleForLogical(modInfo.first)))
+            if (auto* midiCV =
+                    dynamic_cast<MIDICVModuleProcessor*>(synth->getModuleForLogical(modInfo.first)))
             {
                 int requestType = midiCV->getAndClearConnectionRequest();
                 if (requestType > 0)
@@ -7519,6 +7635,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                         addAtMouse("animation");
                     ImGui::EndMenu();
                 }
+#ifndef AUDIO_ONLY_BUILD
                 if (ImGui::BeginMenu("Computer Vision"))
                 {
                     if (ImGui::MenuItem("Webcam Loader"))
@@ -7526,16 +7643,18 @@ void ImGuiNodeEditorComponent::renderImGui()
                     if (ImGui::MenuItem("Video File Loader"))
                         addAtMouse("video_file_loader");
                     ImGui::Separator();
-                if (ImGui::MenuItem("Video FX"))
-                    addAtMouse("video_fx");
-                if (ImGui::MenuItem("Chromakey"))
-                    addAtMouse("chromakey");
-                if (ImGui::MenuItem("Video Compositor"))
-                    addAtMouse("video_compositor");
+                    if (ImGui::MenuItem("Video FX"))
+                        addAtMouse("video_fx");
+                    if (ImGui::MenuItem("Chromakey"))
+                        addAtMouse("chromakey");
+                    if (ImGui::MenuItem("Video Compositor"))
+                        addAtMouse("video_compositor");
                     if (ImGui::MenuItem("Video Draw Impact"))
                         addAtMouse("video_draw_impact");
                     if (ImGui::MenuItem("Crop Video"))
                         addAtMouse("crop_video");
+                    if (ImGui::MenuItem("Video Viewer"))
+                        addAtMouse("video_viewer");
                     ImGui::Separator();
                     if (ImGui::MenuItem("Movement Detector"))
                         addAtMouse("movement_detector");
@@ -7553,6 +7672,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                         addAtMouse("contour_detector");
                     ImGui::EndMenu();
                 }
+#endif
 
                 if (ImGui::BeginMenu("Plugins / VST"))
                 {
@@ -8413,7 +8533,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                                 ImGui::PushStyleColor(ImGuiCol_Text, theme.text.active);
                                 ImGui::Text("ACTIVE");
                                 ImGui::PopStyleColor();
-                                
+
                                 // Show last address received
                                 if (!activity.lastAddress.isEmpty())
                                 {
@@ -8434,7 +8554,8 @@ void ImGuiNodeEditorComponent::renderImGui()
                         // Remove button
                         ImGui::SameLine();
                         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
+                        ImGui::PushStyleColor(
+                            ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
                         if (ImGui::Button("Remove##remove"))
                         {
                             oscMgr.removeDevice(device.identifier);
@@ -8452,7 +8573,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                 // Add Device button (opens a simple dialog)
                 static bool showAddDeviceDialog = false;
                 static char deviceNameBuf[256] = "OSC Device";
-                static int devicePort = 57120;
+                static int  devicePort = 57120;
 
                 if (ImGui::Button("Add Device..."))
                 {
@@ -8467,7 +8588,8 @@ void ImGuiNodeEditorComponent::renderImGui()
                     ImGui::OpenPopup("Add OSC Device");
                 }
 
-                if (ImGui::BeginPopupModal("Add OSC Device", &showAddDeviceDialog, ImGuiWindowFlags_AlwaysAutoResize))
+                if (ImGui::BeginPopupModal(
+                        "Add OSC Device", &showAddDeviceDialog, ImGuiWindowFlags_AlwaysAutoResize))
                 {
                     ImGui::Text("Add New OSC Device");
                     ImGui::Separator();
@@ -8475,7 +8597,7 @@ void ImGuiNodeEditorComponent::renderImGui()
 
                     ImGui::Text("Device Name:");
                     ImGui::InputText("##name", deviceNameBuf, 256);
-                    
+
                     ImGui::Spacing();
                     ImGui::Text("Port:");
                     ImGui::InputInt("##port", &devicePort, 1, 100);
@@ -8490,7 +8612,7 @@ void ImGuiNodeEditorComponent::renderImGui()
                         juce::String name(deviceNameBuf);
                         if (name.isEmpty())
                             name = "OSC Device";
-                        
+
                         juce::String identifier = oscMgr.addDevice(name, devicePort);
                         if (identifier.isNotEmpty())
                         {
@@ -8500,8 +8622,11 @@ void ImGuiNodeEditorComponent::renderImGui()
                         }
                         else
                         {
-                            // Port might be in use - show error (could be improved with a proper error dialog)
-                            juce::Logger::writeToLog("[OSC] Failed to add device - port " + juce::String(devicePort) + " may be in use");
+                            // Port might be in use - show error (could be improved with a proper
+                            // error dialog)
+                            juce::Logger::writeToLog(
+                                "[OSC] Failed to add device - port " + juce::String(devicePort) +
+                                " may be in use");
                         }
                     }
 
@@ -8927,6 +9052,27 @@ void ImGuiNodeEditorComponent::applyUiValueTreeNow(const juce::ValueTree& uiStat
         juce::Logger::writeToLog(
             "[UI_RESTORE] Set default position for output node: (2000.0, 500.0)");
     }
+
+#ifndef AUDIO_ONLY_BUILD
+    // Auto-create VideoViewer module if canvas is empty (only output node exists)
+    auto modules = synth->getModulesInfo();
+    if (modules.empty())
+    {
+        // Canvas is empty - create VideoViewer module by default
+        auto videoViewerNodeId = synth->addModule("video_viewer", false);
+        if (videoViewerNodeId.uid != 0)
+        {
+            auto videoViewerLogicalId = synth->getLogicalIdForNode(videoViewerNodeId);
+            // Position VideoViewer directly below the output node (same X, small Y offset)
+            // Output node is at (1250.0, 500.0), place VideoViewer at (1250.0, 650.0) - 150px below
+            pendingNodePositions[(int)videoViewerLogicalId] = ImVec2(1250.0f, 650.0f);
+            synth->commitChanges();
+            juce::Logger::writeToLog(
+                "[UI_RESTORE] Auto-created VideoViewer module (logicalId=" +
+                juce::String((int)videoViewerLogicalId) + ") at default position (1250.0, 650.0)");
+        }
+    }
+#endif
 
     // Muting/unmuting modifies graph connections, so we must tell the
     // synth to rebuild its processing order.
@@ -9633,6 +9779,25 @@ void ImGuiNodeEditorComponent::newCanvas()
 
     // Clear the synth state (removes all modules and connections)
     synth->clearAll();
+
+    // Set output node position first
+    pendingNodePositions[0] = ImVec2(1250.0f, 500.0f);
+
+#ifndef AUDIO_ONLY_BUILD
+    // Auto-create VideoViewer module on new canvas (like default audio output)
+    auto videoViewerNodeId = synth->addModule("video_viewer", false);
+    if (videoViewerNodeId.uid != 0)
+    {
+        auto videoViewerLogicalId = synth->getLogicalIdForNode(videoViewerNodeId);
+        // Position VideoViewer directly below the output node (same X, small Y offset)
+        // Output node is at (1250.0, 500.0), place VideoViewer at (1250.0, 650.0) - 150px below
+        pendingNodePositions[(int)videoViewerLogicalId] = ImVec2(1250.0f, 650.0f);
+        synth->commitChanges();
+        juce::Logger::writeToLog(
+            "[NewCanvas] Auto-created VideoViewer module (logicalId=" +
+            juce::String((int)videoViewerLogicalId) + ") at default position (1250.0, 650.0)");
+    }
+#endif
 
     // Clear undo/redo stacks
     undoStack.clear();
@@ -12363,29 +12528,29 @@ void ImGuiNodeEditorComponent::handleAutoConnectionRequests()
 }
 
 void ImGuiNodeEditorComponent::handleMIDICVConnectionRequest(
-    juce::uint32 midiCVLid,
+    juce::uint32           midiCVLid,
     MIDICVModuleProcessor* midiCV,
-    int requestType)
+    int                    requestType)
 {
     if (!synth || !midiCV)
         return;
-    
-    juce::Logger::writeToLog(
-        "[MIDI CV Quick Connect] Request type: " + juce::String(requestType));
-    
+
+    juce::Logger::writeToLog("[MIDI CV Quick Connect] Request type: " + juce::String(requestType));
+
     if (requestType == 1) // MidiLogger
     {
         // Get MIDI CV position for positioning new node
         ImVec2 midiCVPos = ImNodes::GetNodeEditorSpacePos(static_cast<int>(midiCVLid));
-        auto midiCVNodeId = synth->getNodeIdForLogical(midiCVLid);
-        
+        auto   midiCVNodeId = synth->getNodeIdForLogical(midiCVLid);
+
         // 1. Create MidiLogger
-        auto midiLoggerNodeId = synth->addModule("midi_logger");
+        auto         midiLoggerNodeId = synth->addModule("midi_logger");
         juce::uint32 midiLoggerLid = synth->getLogicalIdForNode(midiLoggerNodeId);
         pendingNodeScreenPositions[(int)midiLoggerLid] = ImVec2(midiCVPos.x + 400.0f, midiCVPos.y);
         juce::Logger::writeToLog(
-            "[MIDI CV Quick Connect] Created MidiLogger at LID " + juce::String((int)midiLoggerLid));
-        
+            "[MIDI CV Quick Connect] Created MidiLogger at LID " +
+            juce::String((int)midiLoggerLid));
+
         // 2. Connect all 8 voices from MIDI CV to MidiLogger
         // Each voice has 3 outputs: Gate (baseChannel), Pitch (baseChannel+1), Vel (baseChannel+2)
         // MidiLogger expects: Gate (trackIdx*3+0), Pitch (trackIdx*3+1), Velo (trackIdx*3+2)
@@ -12393,17 +12558,19 @@ void ImGuiNodeEditorComponent::handleMIDICVConnectionRequest(
         for (int voice = 0; voice < MIDICVModuleProcessor::NUM_VOICES; ++voice)
         {
             const int baseChannel = voice * 3;
-            
+
             // Connect Gate, Pitch, and Vel for this voice
-            synth->connect(midiCVNodeId, baseChannel + 0, midiLoggerNodeId, baseChannel + 0); // Gate
-            synth->connect(midiCVNodeId, baseChannel + 1, midiLoggerNodeId, baseChannel + 1); // Pitch
+            synth->connect(
+                midiCVNodeId, baseChannel + 0, midiLoggerNodeId, baseChannel + 0); // Gate
+            synth->connect(
+                midiCVNodeId, baseChannel + 1, midiLoggerNodeId, baseChannel + 1); // Pitch
             synth->connect(midiCVNodeId, baseChannel + 2, midiLoggerNodeId, baseChannel + 2); // Vel
         }
-        
+
         juce::Logger::writeToLog(
             "[MIDI CV Quick Connect] Connected " + juce::String(MIDICVModuleProcessor::NUM_VOICES) +
             " voices: MIDI CV → MidiLogger");
-        
+
         // Request graph rebuild to update connections
         graphNeedsRebuild = true;
     }
@@ -12669,6 +12836,7 @@ void ImGuiNodeEditorComponent::drawInsertNodeOnLinkPopup()
             {"Automato", "automato"},
             // Analysis (CV outputs)
             {"BPM Monitor", "bpm_monitor"}};
+#ifndef AUDIO_ONLY_BUILD
         const std::map<const char*, const char*> videoInsertable = {
             // Computer Vision (Video processing)
             // Passthrough nodes (Video In → Video Out)
@@ -12677,6 +12845,7 @@ void ImGuiNodeEditorComponent::drawInsertNodeOnLinkPopup()
             {"Video Compositor", "video_compositor"},
             {"Video Draw Impact", "video_draw_impact"},
             {"Crop Video", "crop_video"},
+            {"Video Viewer", "video_viewer"},
             {"Reroute", "reroute"},
             {"Movement Detector", "movement_detector"},
             {"Object Detector", "object_detector"},
@@ -12685,14 +12854,19 @@ void ImGuiNodeEditorComponent::drawInsertNodeOnLinkPopup()
             {"Face Tracker", "face_tracker"},
             {"Color Tracker", "color_tracker"},
             {"Contour Detector", "contour_detector"}};
+#endif
 
         // Determine which list to show based on cable type
         const PinDataType srcType = getPinDataTypeForPin(linkToInsertOn.srcPin);
         const PinDataType dstType = getPinDataTypeForPin(linkToInsertOn.dstPin);
-        const bool  isVideoCable = (srcType == PinDataType::Video && dstType == PinDataType::Video);
+        const bool isVideoCable = (srcType == PinDataType::Video && dstType == PinDataType::Video);
+#ifndef AUDIO_ONLY_BUILD
         const auto& listToShow = isVideoCable
                                      ? videoInsertable
                                      : (linkToInsertOn.isMod ? modInsertable : audioInsertable);
+#else
+        const auto& listToShow = (linkToInsertOn.isMod ? modInsertable : audioInsertable);
+#endif
 
         if (isMultiInsert)
             ImGui::Text("Insert Node on %d Cables", numSelected);
@@ -14437,8 +14611,9 @@ ImGuiNodeEditorComponent::ModuleCategory ImGuiNodeEditorComponent::getModuleCate
     // === CATEGORY CLASSIFICATION (Following Dictionary Structure) ===
 
     // --- 1. SOURCES (Green) ---
-    if (lower.contains("vco") || lower.contains("polyvco") || lower.contains("stk_string") || lower.contains("stk") || lower.contains("noise") ||
-        lower == "audio_input" || lower.contains("sample") || lower == "value")
+    if (lower.contains("vco") || lower.contains("polyvco") || lower.contains("stk_string") ||
+        lower.contains("stk") || lower.contains("noise") || lower == "audio_input" ||
+        lower.contains("sample") || lower == "value")
         return ModuleCategory::Source;
 
     // --- 2. EFFECTS (Red) ---
@@ -14490,12 +14665,15 @@ ImGuiNodeEditorComponent::ModuleCategory ImGuiNodeEditorComponent::getModuleCate
         return ModuleCategory::Special_Exp;
 
     // --- 10. COMPUTER VISION (Bright Orange) ---
+#ifndef AUDIO_ONLY_BUILD
     if (lower.contains("webcam") || lower.contains("video_file") || lower == "video_fx" ||
-        lower == "chromakey" || lower == "video_compositor" || lower == "video_draw_impact" || lower == "crop_video" || lower.contains("movement") ||
+        lower == "chromakey" || lower == "video_compositor" || lower == "video_draw_impact" ||
+        lower == "crop_video" || lower == "video_viewer" || lower.contains("movement") ||
         lower.contains("detector") || lower.contains("opencv") || lower.contains("vision") ||
         lower.contains("tracker") || lower.contains("segmentation") ||
         lower.contains("pose_estimator"))
         return ModuleCategory::OpenCV;
+#endif
 
     // --- 11. SYSTEM (Lavender) ---
     if (lower.contains("meta") || lower.contains("inlet") || lower.contains("outlet") ||
@@ -14537,13 +14715,18 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
         // Sources
         {"Audio Input", {"audio_input", "Records audio from your audio interface"}},
         {"VCO", {"vco", "Voltage Controlled Oscillator - generates waveforms"}},
-        {"STK String", {"stk_string", "Physical modeling string synthesizer (guitar, violin, cello, sitar, banjo)"}},
-        {"STK Wind", {"stk_wind", "Physical modeling wind instruments (flute, clarinet, saxophone, brass)"}},
-        {"STK Percussion", {"stk_percussion", "Modal synthesis percussion (marimba, cymbal, shakers, etc.)"}},
+        {"STK String",
+         {"stk_string",
+          "Physical modeling string synthesizer (guitar, violin, cello, sitar, banjo)"}},
+        {"STK Wind",
+         {"stk_wind", "Physical modeling wind instruments (flute, clarinet, saxophone, brass)"}},
+        {"STK Percussion",
+         {"stk_percussion", "Modal synthesis percussion (marimba, cymbal, shakers, etc.)"}},
         {"STK Plucked", {"stk_plucked", "Karplus-Strong plucked string synthesis"}},
         {"Polyphonic VCO", {"polyvco", "Polyphonic VCO with multiple voices"}},
         {"Onset Detector", {"essentia_onset_detector", "Detects note onsets (attacks) in audio"}},
-        {"Pitch Tracker", {"essentia_pitch_tracker", "Detects pitch (fundamental frequency) in audio"}},
+        {"Pitch Tracker",
+         {"essentia_pitch_tracker", "Detects pitch (fundamental frequency) in audio"}},
         {"Noise", {"noise", "White, pink, or brown noise generator"}},
         {"Sequencer", {"sequencer", "Step sequencer for creating patterns"}},
         {"Multi Sequencer", {"multi_sequencer", "Multi-track step sequencer"}},
@@ -14553,8 +14736,14 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
         {"MIDI Player", {"midi_player", "Plays MIDI files"}},
         {"MIDI CV", {"midi_cv", "Converts MIDI Note/CC messages to CV signals. (Monophonic)"}},
         {"OSC CV", {"osc_cv", "Converts OSC (Open Sound Control) messages to CV/Gate signals"}},
-        {"CV OSC", {"cv_osc_sender", "Converts CV/Audio/Gate signals to OSC messages. Send internal signals over the network with configurable addresses."}},
-        {"CV -> OSC", {"cv_osc_sender", "Converts CV/Audio/Gate signals to OSC messages. Send internal signals over the network with configurable addresses."}},
+        {"CV OSC",
+         {"cv_osc_sender",
+          "Converts CV/Audio/Gate signals to OSC messages. Send internal signals over the network "
+          "with configurable addresses."}},
+        {"CV -> OSC",
+         {"cv_osc_sender",
+          "Converts CV/Audio/Gate signals to OSC messages. Send internal signals over the network "
+          "with configurable addresses."}},
         {"MIDI Faders", {"midi_faders", "Up to 16 MIDI faders with CC learning"}},
         {"MIDI Knobs", {"midi_knobs", "Up to 16 MIDI knobs/rotary encoders with CC learning"}},
         {"MIDI Buttons", {"midi_buttons", "Up to 32 MIDI buttons with Gate/Toggle/Trigger modes"}},
@@ -14578,6 +14767,10 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
 
 #ifndef AUDIO_ONLY_BUILD
         // OpenCV (Computer Vision)
+        {"Video Viewer",
+         {"video_viewer",
+          "Displays video in a separate resizable window for viewing or OBS capture. The window "
+          "can be positioned on any monitor."}},
         {"Webcam Loader",
          {"webcam_loader",
           "Captures video from a webcam and publishes it as a source for vision processing "
@@ -14594,8 +14787,7 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
           "Removes selected colors from video and converts them to alpha transparency, with spill "
           "suppression and feathering"}},
         {"Video Compositor",
-         {"video_compositor",
-          "Composites multiple video layers with blend modes and transforms"}},
+         {"video_compositor", "Composites multiple video layers with blend modes and transforms"}},
         {"Video Draw Impact",
          {"video_draw_impact",
           "Allows drawing colored impact marks on video frames. Drawings persist for a "
@@ -15552,6 +15744,7 @@ void ImGuiNodeEditorComponent::populateDragInsertSuggestions()
     addInputModule(PinDataType::Video, "video_fx");
     addInputModule(PinDataType::Video, "video_draw_impact");
     addInputModule(PinDataType::Video, "crop_video");
+    addInputModule(PinDataType::Video, "video_viewer");
 #endif
 
     // Seed curated sources for fast access when connecting INTO inputs (needs outputs).

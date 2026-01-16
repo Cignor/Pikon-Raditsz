@@ -34,7 +34,7 @@ public:
     std::vector<DynamicPinInfo> getDynamicOutputPins() const override;
 
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded) override
+    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override
     {
         auto& ap = getAPVTS();
         const auto& theme = ThemeManager::getInstance().getCurrentTheme();
@@ -136,6 +136,12 @@ public:
             cutoff = getLiveParamValueFor(paramIdCutoff, "cutoff_live", cutoff);
             ImGui::BeginDisabled();
         }
+        // Draw inline pin for Cutoff Mod (channel 2)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(2))  // Channel 2 = Cutoff Mod
+                ImGui::SameLine();
+        }
         if (ImGui::SliderFloat("Cutoff", &cutoff, 20.0f, 20000.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic)) {
             if (!isCutoffModulated) {
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdCutoff))) *p = cutoff;
@@ -153,6 +159,12 @@ public:
             q = getLiveParamValueFor(paramIdResonance, "resonance_live", q);
             ImGui::BeginDisabled();
         }
+        // Draw inline pin for Resonance Mod (channel 3)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(3))  // Channel 3 = Resonance Mod
+                ImGui::SameLine();
+        }
         if (ImGui::SliderFloat("Resonance", &q, 0.1f, 10.0f)) {
             if (!isResoModulated) {
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdResonance))) *p = q;
@@ -169,6 +181,12 @@ public:
         if (isTypeModulated) {
             ftype = static_cast<int>(getLiveParamValueFor(paramIdTypeMod, "type_live", static_cast<float>(ftype)));
             ImGui::BeginDisabled();
+        }
+        // Draw inline pin for Type Mod (channel 4)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(4))  // Channel 4 = Type Mod
+                ImGui::SameLine();
         }
         if (ImGui::Combo("Type", &ftype, "Low-pass\0High-pass\0Band-pass\0\0")) {
             if (!isTypeModulated) {
@@ -276,11 +294,10 @@ public:
 
     void drawIoPins(const NodePinHelpers& helpers) override
     {
+        // Only draw audio pins - modulation pins (channels 2, 3, 4) are now inline
         helpers.drawParallelPins("In L", 0, "Out L", 0);
         helpers.drawParallelPins("In R", 1, "Out R", 1);
-        helpers.drawParallelPins("Cutoff Mod", 2, nullptr, -1);
-        helpers.drawParallelPins("Resonance Mod", 3, nullptr, -1);
-        helpers.drawParallelPins("Type Mod", 4, nullptr, -1);
+        // Cutoff Mod (ch 2), Resonance Mod (ch 3), Type Mod (ch 4) are drawn inline in drawParametersInNode
     }
 
     bool usesCustomPinLayout() const override { return true; }

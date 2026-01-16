@@ -294,8 +294,10 @@ void ADSRModuleProcessor::HelpMarkerADSR(const char* desc)
     }
 }
 
-void ADSRModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void ADSRModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     
@@ -316,8 +318,13 @@ void ADSRModuleProcessor::drawParametersInNode(float itemWidth, const std::funct
     ThemeText("Envelope Shape", theme.text.section_header);
     ImGui::Spacing();
     
-    // Attack
+    // Attack with inline pin
     if (isAttackModulated) ImGui::BeginDisabled();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))  // Channel 2 = Attack Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Attack (s)", &a, 0.001f, 5.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) if (!isAttackModulated) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdAttack))) *p = a;
     if (!isAttackModulated) adjustParamOnWheel(ap.getParameter(paramIdAttack), "attack", a);
     if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
@@ -325,8 +332,13 @@ void ADSRModuleProcessor::drawParametersInNode(float itemWidth, const std::funct
     ImGui::SameLine();
     HelpMarkerADSR("Attack time in seconds\nTime to reach peak from gate trigger");
 
-    // Decay
+    // Decay with inline pin
     if (isDecayModulated) ImGui::BeginDisabled();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))  // Channel 3 = Decay Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Decay (s)", &d, 0.001f, 5.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) if (!isDecayModulated) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdDecay))) *p = d;
     if (!isDecayModulated) adjustParamOnWheel(ap.getParameter(paramIdDecay), "decay", d);
     if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
@@ -334,8 +346,13 @@ void ADSRModuleProcessor::drawParametersInNode(float itemWidth, const std::funct
     ImGui::SameLine();
     HelpMarkerADSR("Decay time in seconds\nTime to reach sustain level");
 
-    // Sustain
+    // Sustain with inline pin
     if (isSustainModulated) ImGui::BeginDisabled();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))  // Channel 4 = Sustain Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Sustain", &s, 0.0f, 1.0f)) if (!isSustainModulated) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdSustain))) *p = s;
     if (!isSustainModulated) adjustParamOnWheel(ap.getParameter(paramIdSustain), "sustain", s);
     if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
@@ -343,8 +360,13 @@ void ADSRModuleProcessor::drawParametersInNode(float itemWidth, const std::funct
     ImGui::SameLine();
     HelpMarkerADSR("Sustain level (0-1)\nLevel maintained while gate is held");
 
-    // Release
+    // Release with inline pin
     if (isReleaseModulated) ImGui::BeginDisabled();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(5))  // Channel 5 = Release Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Release (s)", &r, 0.001f, 5.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) if (!isReleaseModulated) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdRelease))) *p = r;
     if (!isReleaseModulated) adjustParamOnWheel(ap.getParameter(paramIdRelease), "release", r);
     if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
@@ -548,8 +570,9 @@ void ADSRModuleProcessor::drawParametersInNode(float itemWidth, const std::funct
     ImGui::PlotLines("##envelopePreview", adsrCurve, 100, 0, nullptr, 0.0f, 1.0f, ImVec2(itemWidth, 60));
     ImGui::PopStyleColor();
 
-    ImGui::PopID(); // End unique ID
     ImGui::PopItemWidth();
+    ImGui::PopID(); // End visualization child window ID
+    ImGui::PopID(); // End module instance ID
 }
 #endif
 

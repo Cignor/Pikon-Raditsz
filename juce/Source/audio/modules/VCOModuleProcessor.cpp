@@ -225,8 +225,8 @@ void VCOModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 
         if ((i & 0x3F) == 0)
         {
-            setLiveParamValue(paramIdFrequency, freq);
-            setLiveParamValue(paramIdWaveform, (float) waveform);
+            setLiveParamValue("frequency_live", freq);
+            setLiveParamValue("waveform_live", (float) waveform);
         }
     }
     

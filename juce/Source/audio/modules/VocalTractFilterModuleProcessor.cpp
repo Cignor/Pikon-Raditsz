@@ -389,10 +389,11 @@ std::vector<DynamicPinInfo> VocalTractFilterModuleProcessor::getDynamicOutputPin
 }
 
 #if defined(PRESET_CREATOR_UI)
-void VocalTractFilterModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void VocalTractFilterModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     if (!vowelShapeParam || !formantShiftParam || !instabilityParam || !outputGainParam) return;
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
+    ImGui::PushID(this);
     ImGui::PushItemWidth(itemWidth);
 
     // === Visualization ===
@@ -563,7 +564,17 @@ void VocalTractFilterModuleProcessor::drawParametersInNode(float itemWidth, cons
         v = getLiveParamValueFor("vowelShape", "vowelShape_live", v);
         ImGui::BeginDisabled();
     }
-    
+    // Draw inline pin for Vowel Mod (channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        int busIdx, chanInBus;
+        if (getParamRouting("vowelShape", busIdx, chanInBus))
+        {
+            int channel = getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus);
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+    }
     if (ImGui::SliderFloat("Vowel", &v, 0.0f, 4.0f, "%.1f")) {
         if (!isVowelModulated) { *vowelShapeParam = v; }
     }
@@ -578,7 +589,17 @@ void VocalTractFilterModuleProcessor::drawParametersInNode(float itemWidth, cons
         s = getLiveParamValueFor("formantShift", "formantShift_live", s);
         ImGui::BeginDisabled();
     }
-    
+    // Draw inline pin for Formant Mod (channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        int busIdx, chanInBus;
+        if (getParamRouting("formantShift", busIdx, chanInBus))
+        {
+            int channel = getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus);
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+    }
     if (ImGui::SliderFloat("Formant", &s, -1.0f, 1.0f, "%.2f")) {
         if (!isFormantModulated) { *formantShiftParam = s; }
     }
@@ -593,7 +614,17 @@ void VocalTractFilterModuleProcessor::drawParametersInNode(float itemWidth, cons
         i = getLiveParamValueFor("instability", "instability_live", i);
         ImGui::BeginDisabled();
     }
-    
+    // Draw inline pin for Instability Mod (channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        int busIdx, chanInBus;
+        if (getParamRouting("instability", busIdx, chanInBus))
+        {
+            int channel = getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus);
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+    }
     if (ImGui::SliderFloat("Instab", &i, 0.0f, 1.0f, "%.2f")) {
         if (!isInstabilityModulated) { *instabilityParam = i; }
     }
@@ -608,7 +639,17 @@ void VocalTractFilterModuleProcessor::drawParametersInNode(float itemWidth, cons
         g = getLiveParamValueFor("formantGain", "formantGain_live", g);
         ImGui::BeginDisabled();
     }
-    
+    // Draw inline pin for Gain Mod (channel 5)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        int busIdx, chanInBus;
+        if (getParamRouting("formantGain", busIdx, chanInBus))
+        {
+            int channel = getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus);
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+    }
     if (ImGui::SliderFloat("Gain", &g, -24.0f, 24.0f, "%.1f dB")) {
         if (!isGainModulated) { *outputGainParam = g; }
     }
@@ -617,24 +658,15 @@ void VocalTractFilterModuleProcessor::drawParametersInNode(float itemWidth, cons
     if (isGainModulated) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
     
     ImGui::PopItemWidth();
+    ImGui::PopID();
 }
 
 void VocalTractFilterModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    // Audio inputs and outputs
+    // Only draw audio pins - modulation pins are now inline
     helpers.drawParallelPins("Audio In L", 0, "Audio Out L", 0);
     helpers.drawParallelPins("Audio In R", 1, "Audio Out R", 1);
-    
-    // Modulation input pins
-    int busIdx, chanInBus;
-    if (getParamRouting("vowelShape", busIdx, chanInBus))
-        helpers.drawParallelPins("Vowel Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-    if (getParamRouting("formantShift", busIdx, chanInBus))
-        helpers.drawParallelPins("Formant Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-    if (getParamRouting("instability", busIdx, chanInBus))
-        helpers.drawParallelPins("Instability Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-    if (getParamRouting("formantGain", busIdx, chanInBus))
-        helpers.drawParallelPins("Gain Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
+    // Vowel Mod, Formant Mod, Instability Mod, Gain Mod are drawn inline in drawParametersInNode
 }
 #endif
 

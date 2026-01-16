@@ -556,7 +556,295 @@ if (lower.contains("webcam") || lower.contains("video_file") ||
 
 ---
 
-## 10. Theme Integration (Optional, but Recommended for Custom UI Styling)
+## 10. Audio-Only Build Support (Required for Video/Computer Vision Modules)
+
+**⚠️ CRITICAL**: If your module is a **video/computer vision module** (uses OpenCV, processes video frames, or handles video I/O), you **MUST** wrap all references in `#ifndef AUDIO_ONLY_BUILD` guards. This ensures the module is excluded from the audio-only build variant.
+
+### When to Use Guards
+
+Use `#ifndef AUDIO_ONLY_BUILD` guards for:
+- **Video processing modules** (Video FX, Video Compositor, Video Draw Impact, etc.)
+- **Computer vision modules** (Object Detector, Face Tracker, Movement Detector, etc.)
+- **Video I/O modules** (Video File Loader, Webcam Loader, Video Viewer, etc.)
+- **Any module that depends on OpenCV or video libraries**
+
+**Do NOT use guards for:**
+- Audio processing modules
+- CV/Gate modules
+- MIDI modules
+- Standard audio effects
+
+### Locations That Need Guards
+
+When adding a video module, you must guard **ALL** of the following locations:
+
+#### 10.1. Include Statements
+
+**File:** `juce/Source/audio/graph/ModularSynthProcessor.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+#include "../modules/VideoViewerModuleProcessor.h"
+#endif
+```
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+#include "../audio/modules/VideoViewerModuleProcessor.h"
+#include "../audio/modules/VideoFXModule.h"
+// ... other video module includes
+#endif
+```
+
+#### 10.2. Factory Registration
+
+**File:** `juce/Source/audio/graph/ModularSynthProcessor.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    reg("video_viewer", [] { return std::make_unique<VideoViewerModuleProcessor>(); });
+    reg("video_fx", [] { return std::make_unique<VideoFXModule>(); });
+    // ... other video modules
+#endif
+```
+
+#### 10.3. Pin Database
+
+**File:** `juce/Source/preset_creator/PinDatabase.cpp`
+
+**Description:**
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    descriptions["video_viewer"] = "Displays video in a separate resizable window...";
+#endif
+```
+
+**Pin Database Entry:**
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    db["video_viewer"] = ModulePinInfo(
+        NodeWidth::Small,
+        {AudioPin("Video In", 0, PinDataType::Video)},
+        {},
+        {});
+#endif
+```
+
+#### 10.4. Left Panel Menu
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    pushCategoryColor(ModuleCategory::OpenCV);
+    bool cvExpanded = ImGui::CollapsingHeader("Computer Vision", ImGuiTreeNodeFlags_DefaultOpen);
+    ImGui::PopStyleColor(3);
+    if (cvExpanded) {
+        addModuleButton("Video Viewer", "video_viewer");
+        // ... other video modules
+    }
+#endif
+```
+
+#### 10.5. Right-Click Context Menu
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    if (ImGui::BeginMenu("Computer Vision", isNodeSelected))
+    {
+        if (ImGui::MenuItem("Video Viewer"))
+            addAtMouse("video_viewer");
+        // ... other video modules
+        ImGui::EndMenu();
+    }
+#endif
+```
+
+#### 10.6. Top Bar Insert Between Menu
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    if (ImGui::BeginMenu("Video Path", isNodeSelected))
+    {
+        if (ImGui::MenuItem("Video Viewer"))
+            insertNodeBetween("video_viewer");
+        ImGui::EndMenu();
+    }
+#endif
+```
+
+#### 10.7. Insert on Cable Menu
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    const std::map<const char*, const char*> videoInsertable = {
+        {"Video Viewer", "video_viewer"},
+        {"Video FX", "video_fx"},
+        // ... other video modules
+    };
+#endif
+```
+
+#### 10.8. Search Database
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    {"Video Viewer", {"video_viewer", "Displays video in a separate window"}},
+    {"Video FX", {"video_fx", "Applies effects to video frames"}},
+    // ... other video modules
+#endif
+```
+
+#### 10.9. Category Matcher
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+// --- OpenCV / Computer Vision (Cyan) ---
+#ifndef AUDIO_ONLY_BUILD
+    if (lower.contains("webcam") || lower.contains("video_file") || 
+        lower == "video_fx" || lower == "video_viewer" ||
+        lower == "video_compositor" || lower.contains("movement") ||
+        // ... other video module checks
+        )
+        return ModuleCategory::OpenCV;
+#endif
+```
+
+#### 10.10. Auto-Creation Code
+
+If your video module is auto-created (like VideoViewer), guard the auto-creation logic:
+
+**File:** `juce/Source/preset_creator/ImGuiNodeEditorComponent.cpp`
+
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    // Auto-create VideoViewer module if canvas is empty
+    auto modules = synth->getModulesInfo();
+    if (modules.empty())
+    {
+        auto videoViewerNodeId = synth->addModule("video_viewer", false);
+        if (videoViewerNodeId.uid != 0)
+        {
+            // ... positioning and setup code
+        }
+    }
+#endif
+```
+
+**Locations to check for auto-creation:**
+- `renderImGui()` - startup auto-creation
+- `applyUiValueTree()` - preset load auto-creation
+- `newCanvas()` - new canvas auto-creation
+
+### Complete Checklist for Video Modules
+
+When adding a video/computer vision module, verify all locations are guarded:
+
+- [ ] **Include statements** in `ModularSynthProcessor.cpp`
+- [ ] **Include statements** in `ImGuiNodeEditorComponent.cpp`
+- [ ] **Factory registration** in `ModularSynthProcessor.cpp`
+- [ ] **Module description** in `PinDatabase.cpp`
+- [ ] **Pin database entry** in `PinDatabase.cpp`
+- [ ] **Left panel menu button** in `ImGuiNodeEditorComponent.cpp`
+- [ ] **Right-click context menu item** in `ImGuiNodeEditorComponent.cpp`
+- [ ] **Top bar insert between menu** in `ImGuiNodeEditorComponent.cpp`
+- [ ] **Insert on cable menu** in `ImGuiNodeEditorComponent.cpp`
+- [ ] **Search database entry** in `ImGuiNodeEditorComponent.cpp`
+- [ ] **Category matcher keyword** in `ImGuiNodeEditorComponent.cpp`
+- [ ] **Auto-creation code** (if applicable) in `ImGuiNodeEditorComponent.cpp`
+
+### Common Mistakes
+
+#### ❌ Mistake 1: Missing Include Guard
+```cpp
+// BAD - Will cause compilation error in audio-only build
+#include "../modules/VideoViewerModuleProcessor.h"
+```
+
+✅ **Solution:**
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+#include "../modules/VideoViewerModuleProcessor.h"
+#endif
+```
+
+#### ❌ Mistake 2: Unguarded Auto-Creation
+```cpp
+// BAD - Will try to create video module in audio-only build
+auto videoViewerNodeId = synth->addModule("video_viewer", false);
+```
+
+✅ **Solution:**
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    auto videoViewerNodeId = synth->addModule("video_viewer", false);
+    // ... rest of creation code
+#endif
+```
+
+#### ❌ Mistake 3: Menu Item Without Guard
+```cpp
+// BAD - Menu item appears in audio-only build but module doesn't exist
+if (ImGui::MenuItem("Video Viewer")) addAtMouse("video_viewer");
+```
+
+✅ **Solution:**
+```cpp
+#ifndef AUDIO_ONLY_BUILD
+    if (ImGui::MenuItem("Video Viewer")) addAtMouse("video_viewer");
+#endif
+```
+
+### Testing Audio-Only Build
+
+After adding a video module, test the audio-only build:
+
+1. **Compile audio-only build** (`AUDIO_ONLY_BUILD=1`)
+   - Should compile without errors
+   - No video module references should cause linker errors
+
+2. **Verify UI**
+   - Video modules should NOT appear in any menus
+   - No video-related UI elements visible
+   - Category "Computer Vision" should not appear
+
+3. **Verify Runtime**
+   - No crashes when loading presets with video modules (they should be ignored)
+   - Auto-creation code should not execute
+
+### Reference: Video Modules Currently Guarded
+
+The following video modules are already properly guarded and can serve as examples:
+- `webcam_loader`
+- `video_file_loader`
+- `video_fx`
+- `chromakey`
+- `video_compositor`
+- `video_draw_impact`
+- `movement_detector`
+- `pose_estimator`
+- `hand_tracker`
+- `face_tracker`
+- `object_detector`
+- `color_tracker`
+- `contour_detector`
+- `crop_video`
+- `video_viewer`
+
+---
+
+## 11. Theme Integration (Optional, but Recommended for Custom UI Styling)
 
 If your new module introduces unique visual elements (custom overlays, novel pin types, or per-module colour accents), sanity-check the theme system so designers can tweak those aspects from the Theme Editor.
 
@@ -595,29 +883,36 @@ Use this checklist to ensure you've registered your module everywhere:
 
 - [ ] **2. Factory Registration** (`ModularSynthProcessor.cpp` ~line 705)
   - [ ] `reg("your_module", []{ return std::make_unique<YourModuleProcessor>(); });`
+  - [ ] **If video module:** Wrapped in `#ifndef AUDIO_ONLY_BUILD`
 
 - [ ] **3. Pin Database** (`PinDatabase.cpp` ~line 277)
   - [ ] Input pins defined
   - [ ] Output pins defined
   - [ ] Node width set appropriately
+  - [ ] **If video module:** Wrapped in `#ifndef AUDIO_ONLY_BUILD`
 
 - [ ] **4. Module Description** (`PinDatabase.cpp` ~line 39)
   - [ ] Tooltip description added
+  - [ ] **If video module:** Wrapped in `#ifndef AUDIO_ONLY_BUILD`
 
 - [ ] **5. Left Panel Menu** (`ImGuiNodeEditorComponent.cpp` ~line 1475)
   - [ ] `addModuleButton("Display Name", "your_module");` added to correct category
+  - [ ] **If video module:** Wrapped in `#ifndef AUDIO_ONLY_BUILD`
 
 - [ ] **6. Right-Click Menu** (`ImGuiNodeEditorComponent.cpp` ~line 3480)
   - [ ] `if (ImGui::MenuItem("Display Name")) addAtMouse("your_module");` added
+  - [ ] **If video module:** Wrapped in `#ifndef AUDIO_ONLY_BUILD`
 
 - [ ] **7. Top Bar Insert Between Menu** (`ImGuiNodeEditorComponent.cpp` ~line 703)
   - [ ] `if (ImGui::MenuItem("Display Name")) { insertNodeBetween("your_module"); }` added
+  - [ ] **If video module:** Wrapped in `#ifndef AUDIO_ONLY_BUILD`
 
 - [ ] **8. Insert on Cable Menu** (`ImGuiNodeEditorComponent.cpp` ~line 12600-12700)
   - [ ] Entry added to appropriate map:
     - [ ] `audioInsertable` for audio modules
     - [ ] `modInsertable` for CV/modulation modules
     - [ ] `videoInsertable` for video/computer vision modules
+  - [ ] **If video module:** Wrapped in `#ifndef AUDIO_ONLY_BUILD`
 
 - [ ] **9. Search System** (`ImGuiNodeEditorComponent.cpp`)
   - [ ] Search database entry added (~line 14580-14630)
@@ -625,6 +920,18 @@ Use this checklist to ensure you've registered your module everywhere:
   - [ ] Category keyword added (~line 14450-14500)
     - [ ] Added to appropriate category check (Effect, OpenCV, etc.)
     - [ ] Uses exact match (`lower == "module_name"`) or contains (`lower.contains("keyword")`)
+  - [ ] **If video module:** Both wrapped in `#ifndef AUDIO_ONLY_BUILD`
+
+- [ ] **10. Audio-Only Build Support** (Video/Computer Vision modules only)
+  - [ ] All include statements guarded
+  - [ ] Factory registration guarded
+  - [ ] Pin database entries guarded
+  - [ ] All menu items guarded
+  - [ ] Search entries guarded
+  - [ ] Category matcher guarded
+  - [ ] Auto-creation code guarded (if applicable)
+  - [ ] Audio-only build compiles successfully
+  - [ ] Video modules don't appear in audio-only build UI
 
 ---
 
@@ -704,6 +1011,7 @@ After adding your module, test that it appears in all locations:
 6. **Factory**: Actually create the module and verify it loads
 7. **Pin Database**: Verify pins appear correctly in the node
 8. **Tooltip**: Hover over the module, verify description appears
+9. **Audio-Only Build** (Video modules only): Compile with `AUDIO_ONLY_BUILD=1`, verify module doesn't appear in UI
 
 ---
 
@@ -788,7 +1096,7 @@ If you want to add a button in your module that auto-creates and connects other 
 
 ## Conclusion
 
-Adding a new module requires updating **9 distinct locations** across **3 files**:
+Adding a new module requires updating **9-10 distinct locations** across **3 files**:
 
 **Files to modify:**
 1. `juce/Source/audio/modules/YourModuleProcessor.h` (new file)
@@ -804,12 +1112,19 @@ Adding a new module requires updating **9 distinct locations** across **3 files*
 - 1 description
 - 5 menu locations
 - 3 search components
+- **For video modules:** All of the above wrapped in `#ifndef AUDIO_ONLY_BUILD` guards
+
+**Important Notes:**
+- **Video/Computer Vision modules** require additional `#ifndef AUDIO_ONLY_BUILD` guards in ALL locations
+- **Audio modules** do NOT need these guards
+- Always test the audio-only build after adding video modules
 
 Follow this guide systematically and use the checklist to ensure your module appears everywhere users expect to find it!
 
 ---
 
-**Last Updated:** October 30, 2025  
+**Last Updated:** December 2024  
 **Reference Module:** Drive (`DriveModuleProcessor`)  
+**Video Module Reference:** VideoViewer (`VideoViewerModuleProcessor`)  
 **Author:** Collider Modular Synthesizer Project
 

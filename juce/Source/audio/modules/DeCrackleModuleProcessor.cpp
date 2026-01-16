@@ -5,7 +5,7 @@
 
 DeCrackleModuleProcessor::DeCrackleModuleProcessor()
     : ModuleProcessor (BusesProperties()
-                        .withInput ("Input", juce::AudioChannelSet::stereo(), true)
+                        .withInput ("Input", juce::AudioChannelSet::discreteChannels(5), true) // ch0-1 audio, ch2-4 mods
                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "DeCrackleParams", createParameterLayout())
 {
@@ -106,15 +106,37 @@ void DeCrackleModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 #endif
     int crackleEventsThisBlock = 0;
     
-    // Get parameter values
-    const float threshold = thresholdParam != nullptr ? thresholdParam->load() : 0.1f;
-    const float smoothingMs = smoothingTimeMsParam != nullptr ? smoothingTimeMsParam->load() : 5.0f;
-    const float wet = amountParam != nullptr ? amountParam->load() : 1.0f;
-    const float dry = 1.0f - wet;
+    // Check if modulation inputs are connected
+    const bool isThresholdMod = isParamInputConnected("threshold_mod");
+    const bool isSmoothingMod = isParamInputConnected("smoothing_time_mod");
+    const bool isAmountMod = isParamInputConnected("amount_mod");
+    
+    // Get pointers to modulation CV inputs, if they are connected
+    const float* thresholdCV = isThresholdMod && in.getNumChannels() > 2 ? in.getReadPointer(2) : nullptr;
+    const float* smoothingCV = isSmoothingMod && in.getNumChannels() > 3 ? in.getReadPointer(3) : nullptr;
+    const float* amountCV = isAmountMod && in.getNumChannels() > 4 ? in.getReadPointer(4) : nullptr;
+    
+    // Get base parameter values
+    const float baseThreshold = thresholdParam != nullptr ? thresholdParam->load() : 0.1f;
+    const float baseSmoothingMs = smoothingTimeMsParam != nullptr ? smoothingTimeMsParam->load() : 5.0f;
+    const float baseAmount = amountParam != nullptr ? amountParam->load() : 1.0f;
+    
+    // Parameter ranges for modulation scaling
+    const float thresholdMin = 0.01f;
+    const float thresholdMax = 1.0f;
+    const float smoothingMin = 0.1f;
+    const float smoothingMax = 20.0f;
+    const float amountMin = 0.0f;
+    const float amountMax = 1.0f;
     
     // Calculate smoothing coefficient
     // Use a fixed, fast coefficient for the smoothing
     const float smoothingCoeff = 0.1f;
+    
+    // Track live values for UI
+    float liveThreshold = baseThreshold;
+    float liveSmoothingMs = baseSmoothingMs;
+    float liveAmount = baseAmount;
     
     for (int ch = 0; ch < numChannels; ++ch)
     {
@@ -123,6 +145,33 @@ void DeCrackleModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         
         for (int i = 0; i < nSamps; ++i)
         {
+            // Calculate effective parameters FOR THIS SAMPLE
+            float threshold = baseThreshold;
+            if (isThresholdMod && thresholdCV != nullptr) {
+                const float cv = juce::jlimit(0.0f, 1.0f, thresholdCV[i]);
+                threshold = thresholdMin + cv * (thresholdMax - thresholdMin);
+            }
+            
+            float smoothingMs = baseSmoothingMs;
+            if (isSmoothingMod && smoothingCV != nullptr) {
+                const float cv = juce::jlimit(0.0f, 1.0f, smoothingCV[i]);
+                // Logarithmic scaling for smoothing time
+                smoothingMs = smoothingMin * std::pow(smoothingMax / smoothingMin, cv);
+            }
+            
+            float wet = baseAmount;
+            if (isAmountMod && amountCV != nullptr) {
+                wet = juce::jlimit(0.0f, 1.0f, amountCV[i]);
+            }
+            const float dry = 1.0f - wet;
+            
+            // Update live values (use last sample for UI display)
+            if (i == nSamps - 1) {
+                liveThreshold = threshold;
+                liveSmoothingMs = smoothingMs;
+                liveAmount = wet;
+            }
+            
             float inputSample = input[i];
             
             // 1. Detect Crackle (discontinuity)
@@ -208,8 +257,13 @@ void DeCrackleModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
     const float blockDuration = (float)nSamps / (float)juce::jmax(1.0, currentSampleRate);
     const float cracklePerSec = blockDuration > 0.0f ? (float)crackleEventsThisBlock / blockDuration : 0.0f;
     vizData.crackleRatePerSec.store(cracklePerSec);
-    vizData.smoothingMsLive.store(smoothingMs);
-    vizData.amountLive.store(wet);
+    vizData.smoothingMsLive.store(liveSmoothingMs);
+    vizData.amountLive.store(liveAmount);
+    
+    // Store live values for UI telemetry
+    setLiveParamValue("threshold_live", liveThreshold);
+    setLiveParamValue("smoothing_time_live", liveSmoothingMs);
+    setLiveParamValue("amount_live", liveAmount);
     const int totalSamplesConsidered = juce::jmax(1, nSamps * juce::jmax(1, numChannels));
     vizData.smoothingActiveRatio.store((float)smoothingActiveSamples / (float)totalSamplesConsidered);
 
@@ -223,16 +277,19 @@ void DeCrackleModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 #if defined(PRESET_CREATOR_UI)
 bool DeCrackleModuleProcessor::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const
 {
-    juce::ignoreUnused(paramId, outBusIndex, outChannelIndexInBus);
-    // No modulation inputs for this module
+    outBusIndex = 0;
+    if (paramId == "threshold_mod")      { outChannelIndexInBus = 2; return true; }
+    if (paramId == "smoothing_time_mod")  { outChannelIndexInBus = 3; return true; }
+    if (paramId == "amount_mod")          { outChannelIndexInBus = 4; return true; }
     return false;
 }
 
-void DeCrackleModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void DeCrackleModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
-    juce::ignoreUnused(isParamModulated);
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
+    ImGui::PushID(this);
+    ImGui::PushItemWidth(itemWidth);
 
     const auto& freqColors = theme.modules.frequency_graph;
     auto resolveColor = [](ImU32 value, ImU32 fallback) { return value != 0 ? value : fallback; };
@@ -409,30 +466,78 @@ void DeCrackleModuleProcessor::drawParametersInNode(float itemWidth, const std::
     ThemeText("De-Crackler Controls", theme.text.section_header);
     ImGui::Spacing();
 
+    // Threshold slider with inline pin
+    bool isThresholdModulated = isParamModulated("threshold_mod");
     float threshold = thresholdParam != nullptr ? thresholdParam->load() : 0.1f;
+    if (isThresholdModulated) {
+        threshold = getLiveParamValueFor("threshold_mod", "threshold_live", threshold);
+    }
+    
+    // Inline pin for Threshold Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+    
+    if (isThresholdModulated) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Threshold", &threshold, 0.01f, 1.0f, "%.3f"))
-        if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("threshold")))
-            *p = threshold;
+        if (!isThresholdModulated)
+            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("threshold")))
+                *p = threshold;
     adjustParamOnWheel(ap.getParameter("threshold"), "threshold", threshold);
     if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
+    if (isThresholdModulated) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
     ImGui::SameLine();
     HelpMarker("Crackle detection sensitivity.\nLower = more sensitive, higher = ignores smaller glitches.");
 
+    // Smoothing Time slider with inline pin
+    bool isSmoothingModulated = isParamModulated("smoothing_time_mod");
     float smoothingTime = smoothingTimeMsParam != nullptr ? smoothingTimeMsParam->load() : 5.0f;
+    if (isSmoothingModulated) {
+        smoothingTime = getLiveParamValueFor("smoothing_time_mod", "smoothing_time_live", smoothingTime);
+    }
+    
+    // Inline pin for Smoothing Mod (Channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))
+            ImGui::SameLine();
+    }
+    
+    if (isSmoothingModulated) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Smoothing (ms)", &smoothingTime, 0.1f, 20.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
-        if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("smoothing_time")))
-            *p = smoothingTime;
+        if (!isSmoothingModulated)
+            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("smoothing_time")))
+                *p = smoothingTime;
     adjustParamOnWheel(ap.getParameter("smoothing_time"), "smoothing_time", smoothingTime);
     if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
+    if (isSmoothingModulated) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
     ImGui::SameLine();
     HelpMarker("Time window for the slewed repair.\nHigher values smooth longer clicks but can dull transients.");
 
+    // Amount slider with inline pin
+    bool isAmountModulated = isParamModulated("amount_mod");
     float amount = amountParam != nullptr ? amountParam->load() : 1.0f;
+    if (isAmountModulated) {
+        amount = getLiveParamValueFor("amount_mod", "amount_live", amount);
+    }
+    
+    // Inline pin for Amount Mod (Channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))
+            ImGui::SameLine();
+    }
+    
+    if (isAmountModulated) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Amount", &amount, 0.0f, 1.0f, "%.2f"))
-        if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("amount")))
-            *p = amount;
+        if (!isAmountModulated)
+            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("amount")))
+                *p = amount;
     adjustParamOnWheel(ap.getParameter("amount"), "amount", amount);
     if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
+    if (isAmountModulated) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
     ImGui::SameLine();
     HelpMarker("Dry/Wet mix. 0 = original, 1 = fully repaired.");
 

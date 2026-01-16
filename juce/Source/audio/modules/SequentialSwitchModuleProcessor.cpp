@@ -254,8 +254,11 @@ void SequentialSwitchModuleProcessor::processBlock(juce::AudioBuffer<float>& buf
 void SequentialSwitchModuleProcessor::drawParametersInNode(
     float itemWidth,
     const std::function<bool(const juce::String& paramId)>& isParamModulated,
-    const std::function<void()>& onModificationEnded)
+    const std::function<void()>& onModificationEnded,
+    const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     ImGui::PushItemWidth(itemWidth);
 
@@ -441,6 +444,13 @@ void SequentialSwitchModuleProcessor::drawParametersInNode(
         float thresh1 = thresh1IsMod ? getLiveParamValueFor(paramIdThreshold1Mod, "threshold1_live", threshold1Param->load())
                                      : threshold1Param->load();
 
+        // Inline pin for Thresh 1 CV (Channel 1)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(1))
+                ImGui::SameLine();
+        }
+
         if (thresh1IsMod) ImGui::BeginDisabled();
         if (ImGui::SliderFloat("Threshold 1", &thresh1, 0.0f, 1.0f, "%.3f"))
         {
@@ -458,6 +468,13 @@ void SequentialSwitchModuleProcessor::drawParametersInNode(
         const bool thresh2IsMod = isParamModulated(paramIdThreshold2Mod);
         float thresh2 = thresh2IsMod ? getLiveParamValueFor(paramIdThreshold2Mod, "threshold2_live", threshold2Param->load())
                                      : threshold2Param->load();
+
+        // Inline pin for Thresh 2 CV (Channel 2)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(2))
+                ImGui::SameLine();
+        }
 
         if (thresh2IsMod) ImGui::BeginDisabled();
         if (ImGui::SliderFloat("Threshold 2", &thresh2, 0.0f, 1.0f, "%.3f"))
@@ -477,6 +494,13 @@ void SequentialSwitchModuleProcessor::drawParametersInNode(
         float thresh3 = thresh3IsMod ? getLiveParamValueFor(paramIdThreshold3Mod, "threshold3_live", threshold3Param->load())
                                      : threshold3Param->load();
 
+        // Inline pin for Thresh 3 CV (Channel 3)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(3))
+                ImGui::SameLine();
+        }
+
         if (thresh3IsMod) ImGui::BeginDisabled();
         if (ImGui::SliderFloat("Threshold 3", &thresh3, 0.0f, 1.0f, "%.3f"))
         {
@@ -495,6 +519,13 @@ void SequentialSwitchModuleProcessor::drawParametersInNode(
         float thresh4 = thresh4IsMod ? getLiveParamValueFor(paramIdThreshold4Mod, "threshold4_live", threshold4Param->load())
                                      : threshold4Param->load();
 
+        // Inline pin for Thresh 4 CV (Channel 4)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(4))
+                ImGui::SameLine();
+        }
+
         if (thresh4IsMod) ImGui::BeginDisabled();
         if (ImGui::SliderFloat("Threshold 4", &thresh4, 0.0f, 1.0f, "%.3f"))
         {
@@ -508,6 +539,7 @@ void SequentialSwitchModuleProcessor::drawParametersInNode(
     }
 
     ImGui::PopItemWidth();
+    ImGui::PopID(); // End module instance ID
 }
 
 void SequentialSwitchModuleProcessor::drawIoPins(const NodePinHelpers& helpers)

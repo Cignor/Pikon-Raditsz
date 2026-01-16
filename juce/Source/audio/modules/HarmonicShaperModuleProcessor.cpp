@@ -451,7 +451,7 @@ void HarmonicShaperModuleProcessor::processBlock(juce::AudioBuffer<float>& buffe
 
 #if defined(PRESET_CREATOR_UI)
 
-void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
@@ -588,9 +588,14 @@ void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const 
     const bool gainIsMod = isParamModulated(paramIdOutputGainMod);
     float gain = gainIsMod ? getLiveParamValueFor(paramIdOutputGainMod, "outputGain_live", outputGainParam->load()) : outputGainParam->load();
 
-    ImGui::PushItemWidth(itemWidth * 0.32f); // Three controls side by side
-
-    // Master Frequency
+    // Master Frequency - on its own line with full width
+    ImGui::PushItemWidth(itemWidth);
+    // Draw inline pin for Freq Mod (channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))  // Channel 2 = Freq Mod
+            ImGui::SameLine();
+    }
     if (freqIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Freq", &freq, 20.0f, 20000.0f, "%.0f Hz", ImGuiSliderFlags_Logarithmic)) {
         if (!freqIsMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdMasterFreq))) *p = freq;
@@ -599,8 +604,13 @@ void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const 
     if (ImGui::IsItemDeactivatedAfterEdit()) onModificationEnded();
     if (freqIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
 
-    // Master Drive
-    ImGui::SameLine();
+    // Master Drive - on its own line
+    // Draw inline pin for Drive Mod (channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))  // Channel 3 = Drive Mod
+            ImGui::SameLine();
+    }
     if (driveIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Drive", &drive, 0.0f, 1.0f, "%.2f")) {
         if (!driveIsMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdMasterDrive))) *p = drive;
@@ -609,15 +619,20 @@ void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const 
     if (ImGui::IsItemDeactivatedAfterEdit()) onModificationEnded();
     if (driveIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
 
-    // Output Gain
-    ImGui::SameLine();
+    // Output Gain - on its own line
+    // Draw inline pin for Gain Mod (channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))  // Channel 4 = Gain Mod
+            ImGui::SameLine();
+    }
     if (gainIsMod) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Gain", &gain, 0.0f, 1.0f, "%.2f")) {
         if (!gainIsMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdOutputGain))) *p = gain;
     }
     if (!gainIsMod) adjustParamOnWheel(ap.getParameter(paramIdOutputGain), "outputGain", gain);
     if (ImGui::IsItemDeactivatedAfterEdit()) onModificationEnded();
-    if (gainIsMod) ImGui::EndDisabled();
+    if (gainIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
     ImGui::PopItemWidth();
 
     // Mix (Dry/Wet)
@@ -625,6 +640,12 @@ void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const 
     float mix = mixIsMod ? getLiveParamValueFor(paramIdMixMod, "mix_live", mixParam->load()) : mixParam->load();
     ImGui::PushItemWidth(itemWidth);
     if (mixIsMod) ImGui::BeginDisabled();
+    // Draw inline pin for Mix Mod (channel 5)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(5))  // Channel 5 = Mix Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Mix", &mix, 0.0f, 1.0f, "%.2f")) {
         if (!mixIsMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdMix))) *p = mix;
     }
@@ -638,6 +659,12 @@ void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const 
     float character = charIsMod ? getLiveParamValueFor(paramIdCharacterMod, "character_live", characterParam->load()) : characterParam->load();
     ImGui::PushItemWidth(itemWidth);
     if (charIsMod) ImGui::BeginDisabled();
+    // Draw inline pin for Character Mod (channel 6)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(6))  // Channel 6 = Character Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Character", &character, 0.0f, 1.0f, "%.2f")) {
         if (!charIsMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdCharacter))) *p = character;
     }
@@ -652,6 +679,12 @@ void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const 
     float smoothness = smoothIsMod ? getLiveParamValueFor(paramIdSmoothnessMod, "smoothness_live", smoothnessParam->load()) : smoothnessParam->load();
     ImGui::PushItemWidth(itemWidth);
     if (smoothIsMod) ImGui::BeginDisabled();
+    // Draw inline pin for Smoothness Mod (channel 7)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(7))  // Channel 7 = Smoothness Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Smoothness", &smoothness, 0.0f, 1.0f, "%.2f")) {
         if (!smoothIsMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdSmoothness))) *p = smoothness;
     }
@@ -808,14 +841,10 @@ void HarmonicShaperModuleProcessor::drawParametersInNode(float itemWidth, const 
 
 void HarmonicShaperModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Only draw audio pins - modulation pins (channels 2-7) are now inline
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
-    helpers.drawParallelPins("Freq Mod", 2, nullptr, -1);
-    helpers.drawParallelPins("Drive Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Gain Mod", 4, nullptr, -1);
-    helpers.drawParallelPins("Mix Mod", 5, nullptr, -1);
-    helpers.drawParallelPins("Character Mod", 6, nullptr, -1);
-    helpers.drawParallelPins("Smoothness Mod", 7, nullptr, -1);
+    // Freq Mod (ch 2), Drive Mod (ch 3), Gain Mod (ch 4), Mix Mod (ch 5), Character Mod (ch 6), Smoothness Mod (ch 7) are drawn inline in drawParametersInNode
 }
 
 juce::String HarmonicShaperModuleProcessor::getAudioInputLabel(int channel) const

@@ -55,35 +55,22 @@ public:
 
     // --- UI drawing functions ---
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>&, const std::function<void()>&) override;
+    void drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>&, const std::function<void()>&, const NodePinHelpers* pinHelpers = nullptr) override;
     
     // --- REFACTORED drawIoPins ---
     void drawIoPins(const NodePinHelpers& helpers) override
     {
-        // Primary signal inputs/outputs
+        // Primary signal inputs/outputs (channels 0-2 stay parallel)
         helpers.drawParallelPins("Gate In", 0, "Value", 0);
         helpers.drawParallelPins("Trigger In", 1, "Inverted", 1);
         helpers.drawParallelPins("Sync In", 2, "Bipolar", 2);
         
-        ImGui::Spacing(); // Small gap between signal and modulation groups
-        
-        // Modulation inputs with corresponding outputs
-        helpers.drawParallelPins("Rate Mod", 3, "Pitch", 3);
-        helpers.drawParallelPins("Slew Mod", 4, "Gate", 4);
-        helpers.drawParallelPins("Gate Thresh Mod", 5, "Trigger", 5);
-        helpers.drawParallelPins("Trig Thresh Mod", 6, "End of Cycle", 6);
-        
-        ImGui::Spacing(); // Small gap before remaining modulation inputs
-        
-        // Remaining modulation inputs
-        helpers.drawParallelPins("Pitch Base Mod", 7, nullptr, -1);
-        helpers.drawParallelPins("Value Mult Mod", 8, nullptr, -1);
-        helpers.drawParallelPins("Curve Select Mod", 9, nullptr, -1);
-
-        ImGui::Spacing(); // Visual separator before curve outputs
-        ImGui::Spacing();
-
-        // Dedicated curve outputs (grouped by color for clarity)
+        // Channels 3-9 are now inline (all modulation inputs)
+        // Draw remaining outputs (output-only pins)
+        helpers.drawParallelPins(nullptr, -1, "Pitch", 3);
+        helpers.drawParallelPins(nullptr, -1, "Gate", 4);
+        helpers.drawParallelPins(nullptr, -1, "Trigger", 5);
+        helpers.drawParallelPins(nullptr, -1, "End of Cycle", 6);
         helpers.drawParallelPins(nullptr, -1, "Blue Value", 7);
         helpers.drawParallelPins(nullptr, -1, "Blue Pitch", 8);
         helpers.drawParallelPins(nullptr, -1, "Red Value", 9);

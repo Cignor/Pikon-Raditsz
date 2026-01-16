@@ -230,9 +230,9 @@ void SampleLoaderModuleProcessor::processBlock(
     processorIsRendering.store(true, std::memory_order_relaxed);
 
     // === DEFERRED SAMPLE LOADING ===
-    bool shouldLoadAfterBlock = false;
+    bool         shouldLoadAfterBlock = false;
     juce::String deferredRandomPath;
-    
+
     if (hasPendingRandomSample.load())
     {
         const juce::ScopedLock lock(pendingRandomLock);
@@ -856,9 +856,10 @@ void SampleLoaderModuleProcessor::processBlock(
 
     if (shouldLoadAfterBlock && deferredRandomPath.isNotEmpty())
     {
-        juce::Logger::writeToLog("[Sample Loader] Loading queued random sample: " + deferredRandomPath);
+        juce::Logger::writeToLog(
+            "[Sample Loader] Loading queued random sample: " + deferredRandomPath);
         loadSample(juce::File(deferredRandomPath));
-        
+
         if (shouldResumeAfterRandomLoad.exchange(false))
         {
             const juce::ScopedLock lock(processorSwapLock);
@@ -882,7 +883,7 @@ void SampleLoaderModuleProcessor::reset()
         hasPendingRandomSample.store(false);
         pendingRandomSamplePath.clear();
     }
-    
+
     if (sampleProcessor != nullptr)
     {
         sampleProcessor->reset();
@@ -906,7 +907,7 @@ void SampleLoaderModuleProcessor::forceStop()
         hasPendingRandomSample.store(false);
         pendingRandomSamplePath.clear();
     }
-    
+
     // Force stop the module's playback state
     isPlaying.store(false);
 
@@ -1179,7 +1180,7 @@ void SampleLoaderModuleProcessor::loadSample(const juce::File& file)
         hasPendingRandomSample.store(false);
         pendingRandomSamplePath.clear();
     }
-    
+
     // CRASH PROTECTION: Validate file path safely
     juce::String filePath;
     try
@@ -1452,10 +1453,7 @@ void SampleLoaderModuleProcessor::logCurrentSettings() const
 
 void SampleLoaderModuleProcessor::updateSoundTouchSettings() {}
 
-void SampleLoaderModuleProcessor::randomizeSample()
-{
-    queueRandomSampleFromCurrentFolder("UI");
-}
+void SampleLoaderModuleProcessor::randomizeSample() { queueRandomSampleFromCurrentFolder("UI"); }
 
 bool SampleLoaderModuleProcessor::queueRandomSampleFromCurrentFolder(const juce::String& sourceTag)
 {
@@ -1511,8 +1509,8 @@ bool SampleLoaderModuleProcessor::queueRandomSampleFromCurrentFolder(const juce:
     if (wasActivelyUsed)
     {
         juce::Logger::writeToLog(
-            "[Sample Loader] " + sourceTag + " stopped playback for random swap: " +
-            randomFile.getFileName());
+            "[Sample Loader] " + sourceTag +
+            " stopped playback for random swap: " + randomFile.getFileName());
     }
     else
     {
@@ -1544,7 +1542,7 @@ void SampleLoaderModuleProcessor::createSampleProcessor()
     const double endSample = endNorm * currentSample->stereo.getNumSamples();
     newProcessor->setPlaybackRange(startSample, endSample);
     newProcessor->resetPosition();
-    
+
     // CRITICAL FIX: Initialize position based on sync mode
     if (pausedPosition >= 0.0 && !syncToTransport.load())
     {
@@ -1552,13 +1550,13 @@ void SampleLoaderModuleProcessor::createSampleProcessor()
         const double maxValidPosition = (double)currentSample->stereo.getNumSamples() - 1.0;
         const double clampedPos = juce::jlimit(0.0, maxValidPosition, pausedPosition);
         newProcessor->setCurrentPosition(clampedPos);
-        
+
         // Log if we had to clamp (indicates sample switch)
         if (pausedPosition > maxValidPosition)
         {
             juce::Logger::writeToLog(
-                "[Sample Loader] Clamped position from " + juce::String(pausedPosition) + 
-                " to " + juce::String(clampedPos) + " (new sample length: " + 
+                "[Sample Loader] Clamped position from " + juce::String(pausedPosition) + " to " +
+                juce::String(clampedPos) + " (new sample length: " +
                 juce::String(currentSample->stereo.getNumSamples()) + ")");
         }
     }
@@ -1566,19 +1564,19 @@ void SampleLoaderModuleProcessor::createSampleProcessor()
     {
         // SYNCED: Initialize from current transport position
         TransportState transport = getParent()->getTransportState();
-        const double totalSamples = (double)currentSample->stereo.getNumSamples();
-        double targetSamplePos = 0.0;
-        
+        const double   totalSamples = (double)currentSample->stereo.getNumSamples();
+        double         targetSamplePos = 0.0;
+
         // Use the same calculation logic as setTimingInfo for consistency
         double bpm = transport.bpm;
         if (bpm < 1.0)
             bpm = 120.0;
-        float knobVal = apvts.getRawParameterValue("speed")->load();
+        float  knobVal = apvts.getRawParameterValue("speed")->load();
         double varispeedSpeed = (bpm / 120.0) * knobVal;
-        
+
         const bool isAbsoluteMode = syncModeParam && (syncModeParam->getIndex() == 1);
-        float sNorm = rangeStartParam ? rangeStartParam->load() : 0.0f;
-        float eNorm = rangeEndParam ? rangeEndParam->load() : 1.0f;
+        float      sNorm = rangeStartParam ? rangeStartParam->load() : 0.0f;
+        float      eNorm = rangeEndParam ? rangeEndParam->load() : 1.0f;
         if (sNorm >= eNorm)
         {
             float m = (sNorm + eNorm) * 0.5f;
@@ -1587,10 +1585,11 @@ void SampleLoaderModuleProcessor::createSampleProcessor()
         }
         double sSamp = sNorm * totalSamples;
         double lSamp = (eNorm * totalSamples) - sSamp;
-        
+
         if (isAbsoluteMode)
         {
-            targetSamplePos = transport.songPositionSeconds * varispeedSpeed * (double)sampleSampleRate.load();
+            targetSamplePos =
+                transport.songPositionSeconds * varispeedSpeed * (double)sampleSampleRate.load();
         }
         else
         {
@@ -1599,15 +1598,19 @@ void SampleLoaderModuleProcessor::createSampleProcessor()
             double progress = 0.0;
             if (loopDurationSec > 0.0)
             {
-                bool loop = apvts.getRawParameterValue("loop") ? (apvts.getRawParameterValue("loop")->load() > 0.5f) : true;
+                bool loop = apvts.getRawParameterValue("loop")
+                                ? (apvts.getRawParameterValue("loop")->load() > 0.5f)
+                                : true;
                 if (loop)
-                    progress = std::fmod(transport.songPositionSeconds, loopDurationSec) / loopDurationSec;
+                    progress =
+                        std::fmod(transport.songPositionSeconds, loopDurationSec) / loopDurationSec;
                 else
-                    progress = juce::jlimit(0.0, 1.0, transport.songPositionSeconds / loopDurationSec);
+                    progress =
+                        juce::jlimit(0.0, 1.0, transport.songPositionSeconds / loopDurationSec);
             }
             targetSamplePos = sSamp + (progress * lSamp);
         }
-        
+
         const double maxValidPosition = totalSamples - 1.0;
         targetSamplePos = juce::jlimit(0.0, maxValidPosition, targetSamplePos);
         newProcessor->setCurrentPosition(targetSamplePos);
@@ -1615,7 +1618,8 @@ void SampleLoaderModuleProcessor::createSampleProcessor()
     else
     {
         // Default: reset to range start
-        newProcessor->resetPosition(); // Reset position without starting playback - wait for trigger
+        newProcessor
+            ->resetPosition(); // Reset position without starting playback - wait for trigger
     }
 
     // Set parameters from our APVTS
@@ -1891,8 +1895,12 @@ void SampleLoaderModuleProcessor::generateSpectrogram()
 void SampleLoaderModuleProcessor::drawParametersInNode(
     float                                                   itemWidth,
     const std::function<bool(const juce::String& paramId)>& isParamModulated,
-    const std::function<void()>&                            onModificationEnded)
+    const std::function<void()>&                            onModificationEnded,
+    const NodePinHelpers*                                   pinHelpers)
 {
+    // Protect global ID space (prevents conflicts when multiple instances exist)
+    ImGui::PushID(this);
+
     // --- THIS IS THE DEFINITIVE FIX ---
     // 1. Draw all the parameter sliders and buttons FIRST.
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
@@ -1940,6 +1948,11 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
         });
     }
     ImGui::SameLine();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(6)) // Randomize Trig
+            ImGui::SameLine();
+    }
     if (ImGui::Button("Random", ImVec2(itemWidth * 0.48f, 0)))
     {
         randomizeSample();
@@ -1972,6 +1985,11 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
                             "speed_mod", "speed_live", apvts.getRawParameterValue("speed")->load())
                       : apvts.getRawParameterValue("speed")->load();
 
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(1)) // Speed Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Speed", &speed, 0.25f, 4.0f, "%.2fx"))
     {
         // Only allow edits when not transport-locked and not CV-modulated
@@ -2019,6 +2037,11 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
                       ? getLiveParamValueFor(
                             "pitch_mod", "pitch_live", apvts.getRawParameterValue("pitch")->load())
                       : apvts.getRawParameterValue("pitch")->load();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0)) // Pitch Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Pitch", &pitch, -24.0f, 24.0f, "%.1f st"))
     {
         apvts.getParameter("pitch")->setValueNotifyingHost(
@@ -2044,6 +2067,11 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
                      ? getLiveParamValueFor(
                            "gate_mod", "gate_live", apvts.getRawParameterValue("gate")->load())
                      : apvts.getRawParameterValue("gate")->load();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2)) // Gate Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Gate", &gate, 0.0f, 1.0f, "%.2f"))
     {
         if (!gateModulated)
@@ -2075,6 +2103,11 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
             ? getLiveParamValueFor("rangeStart_mod", "rangeStart_live", rangeStartParam->load())
             : rangeStartParam->load();
     float rangeEnd = rangeEndParam->load();
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4)) // Range Start Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Range Start", &rangeStart, 0.0f, 1.0f, "%.3f"))
     {
         // Ensure start doesn't exceed end (leave at least 0.001 gap)
@@ -2103,6 +2136,11 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
                    ? getLiveParamValueFor("rangeEnd_mod", "rangeEnd_live", rangeEndParam->load())
                    : rangeEndParam->load();
     rangeStart = rangeStartParam->load(); // Refresh rangeStart for validation
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(5)) // Range End Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Range End", &rangeEnd, 0.0f, 1.0f, "%.3f"))
     {
         // Ensure end doesn't go below start (leave at least 0.001 gap)
@@ -2182,6 +2220,11 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
                 ImGuiCol_FrameBg, ImVec4(0.4f, 0.4f, 0.4f, 0.3f)); // Grey tint for transport sync
     }
 
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(7)) // Position Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Position", &posVal, 0.0f, 1.0f, "%.3f"))
     {
         // Only allow updates if not modulated AND not synced to transport
@@ -2622,19 +2665,14 @@ void SampleLoaderModuleProcessor::drawParametersInNode(
         }
     }
     // --- END OF FIX ---
+    ImGui::PopID();
 }
 
 void SampleLoaderModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
     // Modulation inputs
-    helpers.drawParallelPins("Pitch Mod", 0, nullptr, -1);
-    helpers.drawParallelPins("Speed Mod", 1, nullptr, -1);
-    helpers.drawParallelPins("Gate Mod", 2, nullptr, -1);
-    helpers.drawParallelPins("Trigger Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Range Start Mod", 4, nullptr, -1);
-    helpers.drawParallelPins("Range End Mod", 5, nullptr, -1);
-    helpers.drawParallelPins("Randomize Trig", 6, nullptr, -1);
-    helpers.drawParallelPins("Position Mod", 7, nullptr, -1);
+    // Channels 0, 1, 2, 4, 5, 6, 7 are drawn inline
+    helpers.drawParallelPins("Trigger Mod", 3, nullptr, -1); // Keep Trigger Mod as parallel for now
 
     // Audio outputs (stereo)
     helpers.drawParallelPins(nullptr, -1, "Out L", 0);

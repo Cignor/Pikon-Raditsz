@@ -23,13 +23,16 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() override { return apvts; }
 
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded) override;
+    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override;
 
     void drawIoPins(const NodePinHelpers& helpers) override
     {
         helpers.drawParallelPins("In L", 0, "Out L", 0);
         helpers.drawParallelPins("In R", 1, "Out R", 1);
+        // Modulation pins are now inline, not drawn here
     }
+    
+    bool usesCustomPinLayout() const override { return true; }
 
     juce::String getAudioInputLabel(int channel) const override
     {
@@ -37,6 +40,9 @@ public:
         {
             case 0: return "In L";
             case 1: return "In R";
+            case 2: return "Threshold Mod";
+            case 3: return "Smoothing Mod";
+            case 4: return "Amount Mod";
             default: return juce::String("In ") + juce::String(channel + 1);
         }
     }

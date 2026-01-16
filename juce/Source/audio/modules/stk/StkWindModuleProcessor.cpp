@@ -433,23 +433,23 @@ void StkWindModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         
         if ((i & 0x3F) == 0)
         {
-            setLiveParamValue(paramIdFrequency, freq);
-            setLiveParamValue(paramIdBreathPressure, breathPressure);
-            setLiveParamValue(paramIdVibratoRate, vibratoRate);
-            setLiveParamValue(paramIdVibratoDepth, vibratoDepth);
+            setLiveParamValue("frequency_live", freq);
+            setLiveParamValue("breathPressure_live", breathPressure);
+            setLiveParamValue("vibratoRate_live", vibratoRate);
+            setLiveParamValue("vibratoDepth_live", vibratoDepth);
             
             // Instrument-specific parameters (use pre-calculated CV-modulated values)
             if (instrumentType == 1 || instrumentType == 2) // Clarinet or Saxophone
             {
-                setLiveParamValue(paramIdReedStiffness, reedStiffness);
+                setLiveParamValue("reedStiffness_live", reedStiffness);
             }
             else if (instrumentType == 0) // Flute
             {
-                setLiveParamValue(paramIdJetDelay, jetDelay);
+                setLiveParamValue("jetDelay_live", jetDelay);
             }
             else if (instrumentType == 3) // Brass
             {
-                setLiveParamValue(paramIdLipTension, lipTension);
+                setLiveParamValue("lipTension_live", lipTension);
             }
         }
     }
@@ -518,8 +518,11 @@ bool StkWindModuleProcessor::getParamRouting(const juce::String& paramId, int& o
 #if defined(PRESET_CREATOR_UI)
 void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
                                                    const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                                                   const std::function<void()>& onModificationEnded)
+                                                   const std::function<void()>& onModificationEnded,
+                                                   const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     
@@ -671,8 +674,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Freq Mod (Channel 0)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0))
+            ImGui::SameLine();
+    }
+    
     if (freqMod) ImGui::BeginDisabled();
-    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, paramIdFrequency, frequencyParam->load()) : 440.0f;
+    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, "frequency_live", frequencyParam->load()) : 440.0f;
     if (ImGui::SliderFloat("##freq", &freq, 20.0f, 2000.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic))
     {
         if (!freqMod)
@@ -709,8 +719,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Breath Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+    
     if (breathMod) ImGui::BeginDisabled();
-    float breath = breathPressureParam != nullptr ? getLiveParamValueFor(paramIdBreathMod, paramIdBreathPressure, breathPressureParam->load()) : 0.7f;
+    float breath = breathPressureParam != nullptr ? getLiveParamValueFor(paramIdBreathMod, "breathPressure_live", breathPressureParam->load()) : 0.7f;
     if (ImGui::SliderFloat("##breath", &breath, 0.0f, 1.0f, "%.2f"))
     {
         if (!breathMod)
@@ -747,8 +764,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Vibrato Rate Mod (Channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))
+            ImGui::SameLine();
+    }
+    
     if (vibratoRateMod) ImGui::BeginDisabled();
-    float vibratoRate = vibratoRateParam != nullptr ? getLiveParamValueFor(paramIdVibratoRateMod, paramIdVibratoRate, vibratoRateParam->load()) : 5.0f;
+    float vibratoRate = vibratoRateParam != nullptr ? getLiveParamValueFor(paramIdVibratoRateMod, "vibratoRate_live", vibratoRateParam->load()) : 5.0f;
     if (ImGui::SliderFloat("##vibratoRate", &vibratoRate, 0.0f, 20.0f, "%.1f Hz"))
     {
         if (!vibratoRateMod)
@@ -781,8 +805,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Vibrato Mod (Channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))
+            ImGui::SameLine();
+    }
+    
     if (vibratoMod) ImGui::BeginDisabled();
-    float vibratoDepth = vibratoDepthParam != nullptr ? getLiveParamValueFor(paramIdVibratoMod, paramIdVibratoDepth, vibratoDepthParam->load()) : 0.2f;
+    float vibratoDepth = vibratoDepthParam != nullptr ? getLiveParamValueFor(paramIdVibratoMod, "vibratoDepth_live", vibratoDepthParam->load()) : 0.2f;
     if (ImGui::SliderFloat("##vibratoDepth", &vibratoDepth, 0.0f, 1.0f, "%.2f"))
     {
         if (!vibratoMod)
@@ -821,8 +852,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Reed Stiffness Mod (Channel 5)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(5))
+                ImGui::SameLine();
+        }
+        
         if (reedStiffnessMod) ImGui::BeginDisabled();
-        float reedStiffness = reedStiffnessParam != nullptr ? getLiveParamValueFor(paramIdReedStiffnessMod, paramIdReedStiffness, reedStiffnessParam->load()) : 0.5f;
+        float reedStiffness = reedStiffnessParam != nullptr ? getLiveParamValueFor(paramIdReedStiffnessMod, "reedStiffness_live", reedStiffnessParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##reed", &reedStiffness, 0.0f, 1.0f, "%.2f"))
         {
             if (!reedStiffnessMod)
@@ -860,8 +898,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Jet Delay Mod (Channel 6)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(6))
+                ImGui::SameLine();
+        }
+        
         if (jetDelayMod) ImGui::BeginDisabled();
-        float jetDelay = jetDelayParam != nullptr ? getLiveParamValueFor(paramIdJetDelayMod, paramIdJetDelay, jetDelayParam->load()) : 0.5f;
+        float jetDelay = jetDelayParam != nullptr ? getLiveParamValueFor(paramIdJetDelayMod, "jetDelay_live", jetDelayParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##jet", &jetDelay, 0.0f, 1.0f, "%.2f"))
         {
             if (!jetDelayMod)
@@ -899,8 +944,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
         }
         
+        // Inline pin for Lip Tension Mod (Channel 7)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(7))
+                ImGui::SameLine();
+        }
+        
         if (lipTensionMod) ImGui::BeginDisabled();
-        float lipTension = lipTensionParam != nullptr ? getLiveParamValueFor(paramIdLipTensionMod, paramIdLipTension, lipTensionParam->load()) : 0.5f;
+        float lipTension = lipTensionParam != nullptr ? getLiveParamValueFor(paramIdLipTensionMod, "lipTension_live", lipTensionParam->load()) : 0.5f;
         if (ImGui::SliderFloat("##lip", &lipTension, 0.0f, 1.0f, "%.2f"))
         {
             if (!lipTensionMod)
@@ -927,19 +979,15 @@ void StkWindModuleProcessor::drawParametersInNode(float itemWidth,
     }
 
     ImGui::PopItemWidth();
-    ImGui::PopID();
+    ImGui::PopID(); // End module instance ID
 }
 
 void StkWindModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    helpers.drawParallelPins("Freq Mod", 0, "Out", 0);
+    // Channels 0, 2, 3, 4, 5, 6, 7 are now inline (all modulation inputs except Gate)
+    // Only draw Gate (ch1) and Output as parallel pins
     helpers.drawParallelPins("Gate", 1, nullptr, -1);
-    helpers.drawParallelPins("Breath", 2, nullptr, -1);
-    helpers.drawParallelPins("Vibrato", 3, nullptr, -1);
-    helpers.drawParallelPins("Vibrato Rate", 4, nullptr, -1);
-    helpers.drawParallelPins("Reed Stiffness", 5, nullptr, -1);
-    helpers.drawParallelPins("Jet Delay", 6, nullptr, -1);
-    helpers.drawParallelPins("Lip Tension", 7, nullptr, -1);
+    helpers.drawAudioOutputPin("Out", 0);
 }
 
 juce::String StkWindModuleProcessor::getAudioInputLabel(int channel) const

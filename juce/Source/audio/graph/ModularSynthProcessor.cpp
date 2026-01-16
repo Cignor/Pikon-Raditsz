@@ -103,6 +103,7 @@
 #include "../modules/ColorTrackerModule.h"
 #include "../modules/ContourDetectorModule.h"
 #include "../modules/CropVideoModule.h"
+#include "../modules/VideoViewerModuleProcessor.h"
 #endif
 #include "../modules/InletModuleProcessor.h"
 #include "../modules/OutletModuleProcessor.h"
@@ -288,13 +289,14 @@ void ModularSynthProcessor::processOscWithSourceInfo(
     // Update activity tracking (no verbose logging - too many messages)
     currentOscActivity.deviceNames.clear();
     currentOscActivity.lastAddresses.clear();
-    
+
     for (const auto& msg : messages)
     {
         currentOscActivity.deviceNames[msg.deviceIndex] = msg.sourceName;
-        currentOscActivity.lastAddresses[msg.deviceIndex] = msg.message.getAddressPattern().toString();
+        currentOscActivity.lastAddresses[msg.deviceIndex] =
+            msg.message.getAddressPattern().toString();
     }
-    
+
     // Messages will be distributed to modules in processBlock()
 }
 
@@ -443,25 +445,28 @@ void ModularSynthProcessor::processBlock(
             // --- END OF THREAD-SAFE FIX ---
         }
         // === END MULTI-MIDI DISTRIBUTION ===
-        
+
         // === OSC SUPPORT: Distribute OSC messages to modules ===
         // This happens BEFORE voice management and graph processing
         // Modules receive source info and can filter by source/address pattern
         {
             const juce::ScopedLock lock(oscActivityLock);
-            
+
             auto currentProcessors = activeAudioProcessors.load();
             if (currentProcessors && !currentBlockOscMessages.empty())
             {
-                // Only log if there are modules to receive (avoid spam when no OSC CV modules exist)
+                // Only log if there are modules to receive (avoid spam when no OSC CV modules
+                // exist)
                 static int logCounter = 0;
-                bool shouldLog = (logCounter++ % 1000 == 0) && currentProcessors->size() > 0;
-                
+                bool       shouldLog = (logCounter++ % 1000 == 0) && currentProcessors->size() > 0;
+
                 if (shouldLog)
                 {
-                    juce::Logger::writeToLog("[ModularSynth] processBlock: Distributing OSC messages to " + juce::String(currentProcessors->size()) + " modules");
+                    juce::Logger::writeToLog(
+                        "[ModularSynth] processBlock: Distributing OSC messages to " +
+                        juce::String(currentProcessors->size()) + " modules");
                 }
-                
+
                 for (const auto& modulePtr : *currentProcessors)
                 {
                     if (modulePtr != nullptr)
@@ -469,7 +474,7 @@ void ModularSynthProcessor::processBlock(
                         modulePtr->handleOscSignal(currentBlockOscMessages);
                     }
                 }
-                
+
                 // Clear for next block
                 currentBlockOscMessages.clear();
             }
@@ -889,7 +894,8 @@ void ModularSynthProcessor::setStateInformation(const void* data, int sizeInByte
                     if (auto* mp = dynamic_cast<ModuleProcessor*>(node->getProcessor()))
                     {
                         mp->getAPVTS().replaceState(params);
-                        // Ensure AudioDeviceManager is set for modules that need it (e.g., MIDI Player, MIDI Logger, Audio Input)
+                        // Ensure AudioDeviceManager is set for modules that need it (e.g., MIDI
+                        // Player, MIDI Logger, Audio Input)
                         if (auto* midiPlayer = dynamic_cast<MIDIPlayerModuleProcessor*>(mp))
                         {
                             midiPlayer->setAudioDeviceManager(audioDeviceManager);
@@ -1041,8 +1047,10 @@ static std::map<juce::String, Creator>& getModuleFactory()
         reg("stk_wind", [] { return std::make_unique<StkWindModuleProcessor>(); });
         reg("stk_percussion", [] { return std::make_unique<StkPercussionModuleProcessor>(); });
         reg("stk_plucked", [] { return std::make_unique<StkPluckedModuleProcessor>(); });
-        reg("essentia_onset_detector", [] { return std::make_unique<EssentiaOnsetDetectorModuleProcessor>(); });
-        reg("essentia_pitch_tracker", [] { return std::make_unique<EssentiaPitchTrackerModuleProcessor>(); });
+        reg("essentia_onset_detector",
+            [] { return std::make_unique<EssentiaOnsetDetectorModuleProcessor>(); });
+        reg("essentia_pitch_tracker",
+            [] { return std::make_unique<EssentiaPitchTrackerModuleProcessor>(); });
         reg("audio_input", [] { return std::make_unique<AudioInputModuleProcessor>(); });
         reg("vcf", [] { return std::make_unique<VCFModuleProcessor>(); });
         reg("vca", [] { return std::make_unique<VCAModuleProcessor>(); });
@@ -1138,6 +1146,7 @@ static std::map<juce::String, Creator>& getModuleFactory()
         reg("color_tracker", [] { return std::make_unique<ColorTrackerModule>(); });
         reg("contour_detector", [] { return std::make_unique<ContourDetectorModule>(); });
         reg("crop_video", [] { return std::make_unique<CropVideoModule>(); });
+        reg("video_viewer", [] { return std::make_unique<VideoViewerModuleProcessor>(); });
 #endif
         reg("stroke_sequencer", [] { return std::make_unique<StrokeSequencerModuleProcessor>(); });
         reg("chord_arp", [] { return std::make_unique<ChordArpModuleProcessor>(); });
@@ -1214,7 +1223,8 @@ ModularSynthProcessor::NodeID ModularSynthProcessor::addModule(
         if (auto* mp = dynamic_cast<ModuleProcessor*>(node->getProcessor()))
         {
             mp->setParent(this);
-            // Pass AudioDeviceManager to modules that need it (e.g., MIDI Player, MIDI Logger, Audio Input)
+            // Pass AudioDeviceManager to modules that need it (e.g., MIDI Player, MIDI Logger,
+            // Audio Input)
             if (auto* midiPlayer = dynamic_cast<MIDIPlayerModuleProcessor*>(mp))
             {
                 midiPlayer->setAudioDeviceManager(audioDeviceManager);
@@ -1473,58 +1483,59 @@ void ModularSynthProcessor::commitChanges()
 
                 if (!internalGraph->isConnected(midiConn))
                 {
-                    internalGraph->addConnection(midiConn, juce::AudioProcessorGraph::UpdateKind::none);
+                    internalGraph->addConnection(
+                        midiConn, juce::AudioProcessorGraph::UpdateKind::none);
                 }
             }
         }
     }
-    
+
     // ---------------------------------------------------------------------
     // CRITICAL FIX: Route MIDI from modules that produce MIDI (e.g., MIDI Player,
     // MIDI Logger) to all modules that accept MIDI (e.g., VSTi plugins).
     // This enables MIDI generated by modules to reach VSTi plugins.
     // ---------------------------------------------------------------------
     {
-        auto nodes = internalGraph->getNodes();
+        auto                                           nodes = internalGraph->getNodes();
         std::vector<juce::AudioProcessorGraph::NodeID> producingNodes;
         std::vector<juce::AudioProcessorGraph::NodeID> acceptingNodes;
-        
+
         // Find all nodes that produce MIDI (excluding graph IO nodes)
         for (auto* node : nodes)
         {
             if (node == nullptr)
                 continue;
-            
+
             // Skip graph IO nodes
             if (node->nodeID == midiInputNode->nodeID || node->nodeID == audioInputNode->nodeID ||
                 node->nodeID == audioOutputNode->nodeID)
                 continue;
-            
+
             auto* proc = node->getProcessor();
             if (proc != nullptr && proc->producesMidi())
             {
                 producingNodes.push_back(node->nodeID);
             }
         }
-        
+
         // Find all nodes that accept MIDI (excluding graph IO nodes)
         for (auto* node : nodes)
         {
             if (node == nullptr)
                 continue;
-            
+
             // Skip graph IO nodes
             if (node->nodeID == midiInputNode->nodeID || node->nodeID == audioInputNode->nodeID ||
                 node->nodeID == audioOutputNode->nodeID)
                 continue;
-            
+
             auto* proc = node->getProcessor();
             if (proc != nullptr && proc->acceptsMidi())
             {
                 acceptingNodes.push_back(node->nodeID);
             }
         }
-        
+
         // Connect each producing node to each accepting node
         for (const auto& producerID : producingNodes)
         {
@@ -1533,17 +1544,18 @@ void ModularSynthProcessor::commitChanges()
                 // Don't connect a node to itself
                 if (producerID == acceptorID)
                     continue;
-                
+
                 const juce::AudioProcessorGraph::Connection midiConn{
                     {producerID, juce::AudioProcessorGraph::midiChannelIndex},
                     {acceptorID, juce::AudioProcessorGraph::midiChannelIndex}};
-                
+
                 if (!internalGraph->isConnected(midiConn))
                 {
-                    internalGraph->addConnection(midiConn, juce::AudioProcessorGraph::UpdateKind::none);
-                    juce::Logger::writeToLog("[ModSynth] Auto-connected MIDI: node " + 
-                                            juce::String(producerID.uid) + " -> node " + 
-                                            juce::String(acceptorID.uid));
+                    internalGraph->addConnection(
+                        midiConn, juce::AudioProcessorGraph::UpdateKind::none);
+                    juce::Logger::writeToLog(
+                        "[ModSynth] Auto-connected MIDI: node " + juce::String(producerID.uid) +
+                        " -> node " + juce::String(acceptorID.uid));
                 }
             }
         }

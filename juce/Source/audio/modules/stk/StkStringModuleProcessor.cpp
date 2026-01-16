@@ -541,9 +541,9 @@ void StkStringModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         
         if ((i & 0x3F) == 0)
         {
-            setLiveParamValue(paramIdFrequency, freq);
-            setLiveParamValue(paramIdDamping, damping);
-            setLiveParamValue(paramIdPickupPos, pickupPos);
+            setLiveParamValue("frequency_live", freq);
+            setLiveParamValue("damping_live", damping);
+            setLiveParamValue("pickupPos_live", pickupPos);
         }
     }
 
@@ -600,8 +600,11 @@ bool StkStringModuleProcessor::getParamRouting(const juce::String& paramId, int&
 #if defined(PRESET_CREATOR_UI)
 void StkStringModuleProcessor::drawParametersInNode(float itemWidth,
                                                       const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                                                      const std::function<void()>& onModificationEnded)
+                                                      const std::function<void()>& onModificationEnded,
+                                                      const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     
@@ -675,8 +678,15 @@ void StkStringModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Frequency Mod (Channel 0)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0))
+            ImGui::SameLine();
+    }
+    
     if (freqMod) ImGui::BeginDisabled();
-    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, paramIdFrequency, frequencyParam->load()) : 440.0f;
+    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, "frequency_live", frequencyParam->load()) : 440.0f;
     if (ImGui::SliderFloat("##freq", &freq, 20.0f, 2000.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic))
     {
         if (!freqMod)
@@ -714,8 +724,15 @@ void StkStringModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Damping Mod (Channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))
+            ImGui::SameLine();
+    }
+    
     if (dampingMod) ImGui::BeginDisabled();
-    float damping = dampingParam != nullptr ? getLiveParamValueFor(paramIdDampingMod, paramIdDamping, dampingParam->load()) : 0.5f;
+    float damping = dampingParam != nullptr ? getLiveParamValueFor(paramIdDampingMod, "damping_live", dampingParam->load()) : 0.5f;
     if (ImGui::SliderFloat("##damping", &damping, 0.0f, 1.0f, "%.2f"))
     {
         if (!dampingMod)
@@ -753,8 +770,15 @@ void StkStringModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Pickup Mod (Channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))
+            ImGui::SameLine();
+    }
+    
     if (pickupMod) ImGui::BeginDisabled();
-    float pickupPos = pickupPosParam != nullptr ? getLiveParamValueFor(paramIdPickupMod, paramIdPickupPos, pickupPosParam->load()) : 0.5f;
+    float pickupPos = pickupPosParam != nullptr ? getLiveParamValueFor(paramIdPickupMod, "pickupPos_live", pickupPosParam->load()) : 0.5f;
     if (ImGui::SliderFloat("##pickup", &pickupPos, 0.0f, 1.0f, "%.2f"))
     {
         if (!pickupMod)
@@ -934,18 +958,19 @@ void StkStringModuleProcessor::drawParametersInNode(float itemWidth,
     }
     ImGui::EndChild(); // CRITICAL: Must be OUTSIDE the if block!
     
-    ImGui::PopID();
+    ImGui::PopID(); // End visualization child window ID
 
     ImGui::PopItemWidth();
+    ImGui::PopID(); // End module instance ID
 }
 
 void StkStringModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    helpers.drawParallelPins("Frequency Mod", 0, "Output", 0);
+    // Channels 0, 3, 4 are now inline (Frequency, Damping, Pickup)
+    // Only draw Gate (ch1), Velocity (ch2), and Output as parallel pins
     helpers.drawParallelPins("Gate", 1, nullptr, -1);
     helpers.drawParallelPins("Velocity", 2, nullptr, -1);
-    helpers.drawParallelPins("Damping Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Pickup Mod", 4, nullptr, -1);
+    helpers.drawAudioOutputPin("Output", 0);
 }
 
 juce::String StkStringModuleProcessor::getAudioInputLabel(int channel) const

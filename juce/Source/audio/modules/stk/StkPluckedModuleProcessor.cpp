@@ -247,9 +247,9 @@ void StkPluckedModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         
         if ((i & 0x3F) == 0)
         {
-            setLiveParamValue(paramIdFrequency, freq);
-            setLiveParamValue(paramIdDamping, damping);
-            setLiveParamValue(paramIdPluckVelocity, velocity);
+            setLiveParamValue("frequency_live", freq);
+            setLiveParamValue("damping_live", damping);
+            setLiveParamValue("pluckVelocity_live", velocity);
         }
     }
 
@@ -303,9 +303,12 @@ bool StkPluckedModuleProcessor::getParamRouting(const juce::String& paramId, int
 
 #if defined(PRESET_CREATOR_UI)
 void StkPluckedModuleProcessor::drawParametersInNode(float itemWidth,
-                                                    const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                                                    const std::function<void()>& onModificationEnded)
+                              const std::function<bool(const juce::String& paramId)>& isParamModulated,
+                              const std::function<void()>& onModificationEnded,
+                              const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     
@@ -323,7 +326,6 @@ void StkPluckedModuleProcessor::drawParametersInNode(float itemWidth,
     };
 
     ImGui::PushItemWidth(itemWidth);
-    ImGui::PushID(this);
 
     // Read visualization data (thread-safe)
     float outputWaveform[VizData::waveformPoints];
@@ -401,8 +403,15 @@ void StkPluckedModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Freq Mod (Channel 0)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(0))
+            ImGui::SameLine();
+    }
+    
     if (freqMod) ImGui::BeginDisabled();
-    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, paramIdFrequency, frequencyParam->load()) : 440.0f;
+    float freq = frequencyParam != nullptr ? getLiveParamValueFor(paramIdFreqMod, "frequency_live", frequencyParam->load()) : 440.0f;
     if (ImGui::SliderFloat("##freq", &freq, 20.0f, 2000.0f, "%.1f Hz", ImGuiSliderFlags_Logarithmic))
     {
         if (!freqMod)
@@ -440,8 +449,15 @@ void StkPluckedModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Damping Mod (Channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))
+            ImGui::SameLine();
+    }
+    
     if (dampingMod) ImGui::BeginDisabled();
-    float damping = dampingParam != nullptr ? getLiveParamValueFor(paramIdDampingMod, paramIdDamping, dampingParam->load()) : 0.5f;
+    float damping = dampingParam != nullptr ? getLiveParamValueFor(paramIdDampingMod, "damping_live", dampingParam->load()) : 0.5f;
     if (ImGui::SliderFloat("##damping", &damping, 0.0f, 1.0f, "%.2f"))
     {
         if (!dampingMod)
@@ -479,8 +495,15 @@ void StkPluckedModuleProcessor::drawParametersInNode(float itemWidth,
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.4f, 0.5f, 0.5f));
     }
     
+    // Inline pin for Velocity Mod (Channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))
+            ImGui::SameLine();
+    }
+    
     if (velocityMod) ImGui::BeginDisabled();
-    float velocity = pluckVelocityParam != nullptr ? getLiveParamValueFor(paramIdVelocityMod, paramIdPluckVelocity, pluckVelocityParam->load()) : 0.8f;
+    float velocity = pluckVelocityParam != nullptr ? getLiveParamValueFor(paramIdVelocityMod, "pluckVelocity_live", pluckVelocityParam->load()) : 0.8f;
     if (ImGui::SliderFloat("##velocity", &velocity, 0.0f, 1.0f, "%.2f"))
     {
         if (!velocityMod)
@@ -504,15 +527,15 @@ void StkPluckedModuleProcessor::drawParametersInNode(float itemWidth,
     HelpMarker("Pluck velocity/amplitude");
 
     ImGui::PopItemWidth();
-    ImGui::PopID();
+    ImGui::PopID(); // End module instance ID
 }
 
 void StkPluckedModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    helpers.drawParallelPins("Freq Mod", 0, "Out", 0);
+    // Channels 0, 2, 3 are now inline (Frequency, Damping, Velocity)
+    // Only draw Gate (ch1) and Output as parallel pins
     helpers.drawParallelPins("Gate", 1, nullptr, -1);
-    helpers.drawParallelPins("Damping", 2, nullptr, -1);
-    helpers.drawParallelPins("Velocity", 3, nullptr, -1);
+    helpers.drawAudioOutputPin("Out", 0);
 }
 
 juce::String StkPluckedModuleProcessor::getAudioInputLabel(int channel) const

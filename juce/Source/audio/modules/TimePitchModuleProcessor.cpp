@@ -487,7 +487,8 @@ bool TimePitchModuleProcessor::getParamRouting(const juce::String& paramId, int&
 #if defined(PRESET_CREATOR_UI)
 void TimePitchModuleProcessor::drawParametersInNode (float itemWidth,
                                                     const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                                                    const std::function<void()>& onModificationEnded)
+                                                    const std::function<void()>& onModificationEnded,
+                                                    const NodePinHelpers* pinHelpers)
 {
     ImGui::PushID (this);
     ImGui::PushItemWidth (itemWidth);
@@ -689,6 +690,12 @@ void TimePitchModuleProcessor::drawParametersInNode (float itemWidth,
     if (spMod) {
         speed = getLiveParamValueFor (paramIdSpeedMod, "speed_live", speed);
     }
+    // Draw inline pin for Speed Mod (channel 2)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(2))  // Channel 2 = Speed Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat ("Speed", &speed, 0.25f, 4.0f, "%.2fx")) {
         if (!spMod) {
             if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter (paramIdSpeed))) *p = speed;
@@ -707,6 +714,12 @@ void TimePitchModuleProcessor::drawParametersInNode (float itemWidth,
     if (piMod) {
         pitch = getLiveParamValueFor (paramIdPitchMod, "pitch_live", pitch);
     }
+    // Draw inline pin for Pitch Mod (channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))  // Channel 3 = Pitch Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat ("Pitch", &pitch, -24.0f, 24.0f, "%.1f st"))
         if (!piMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter (paramIdPitch))) *p = pitch;
     if (!piMod) adjustParamOnWheel (ap.getParameter (paramIdPitch), paramIdPitch, pitch);
@@ -722,6 +735,12 @@ void TimePitchModuleProcessor::drawParametersInNode (float itemWidth,
     float mix = mixParam ? mixParam->load() : 1.0f;
     if (mixMod) {
         mix = getLiveParamValueFor (paramIdMixMod, "mix_live", mix);
+    }
+    // Draw inline pin for Mix Mod (channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))  // Channel 4 = Mix Mod
+            ImGui::SameLine();
     }
     if (ImGui::SliderFloat ("Mix", &mix, 0.0f, 1.0f, "%.2f"))
         if (!mixMod) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter (paramIdMix))) *p = mix;
@@ -787,11 +806,10 @@ void TimePitchModuleProcessor::drawParametersInNode (float itemWidth,
 
 void TimePitchModuleProcessor::drawIoPins (const NodePinHelpers& helpers)
 {
+    // Only draw audio pins - modulation pins (channels 2-4) are now inline
     helpers.drawParallelPins ("In L", 0, "Out L", 0);
     helpers.drawParallelPins ("In R", 1, "Out R", 1);
-    helpers.drawParallelPins ("Speed Mod", 2, nullptr, -1);
-    helpers.drawParallelPins ("Pitch Mod", 3, nullptr, -1);
-    helpers.drawParallelPins ("Mix Mod", 4, nullptr, -1);
+    // Speed Mod (ch 2), Pitch Mod (ch 3), Mix Mod (ch 4) are drawn inline in drawParametersInNode
 }
 #endif
 

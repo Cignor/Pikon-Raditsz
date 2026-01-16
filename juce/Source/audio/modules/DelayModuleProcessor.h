@@ -28,11 +28,12 @@ public:
     std::vector<DynamicPinInfo> getDynamicOutputPins() const override;
 
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded) override
+    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override
     {
         auto& ap = getAPVTS();
         const auto& theme = ThemeManager::getInstance().getCurrentTheme();
         
+        ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
         ImGui::PushItemWidth(itemWidth);
         
         // Helper for tooltips
@@ -196,6 +197,12 @@ public:
         if (isTimeModulated) {
             ImGui::BeginDisabled();
         }
+        // Draw inline pin for Time Mod (channel 2)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(2))  // Channel 2 = Time Mod
+                ImGui::SameLine();
+        }
         if (ImGui::SliderFloat("Time (ms)", &timeMs, 1.0f, 2000.0f, "%.1f")) {
             if (!isTimeModulated) {
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("timeMs"))) *p = timeMs;
@@ -214,6 +221,12 @@ public:
         if (isFbModulated) {
             ImGui::BeginDisabled();
         }
+        // Draw inline pin for Feedback Mod (channel 3)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(3))  // Channel 3 = Feedback Mod
+                ImGui::SameLine();
+        }
         if (ImGui::SliderFloat("Feedback", &fb, 0.0f, 0.95f)) {
             if (!isFbModulated) {
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("feedback"))) *p = fb;
@@ -231,6 +244,12 @@ public:
                                    : (mixParam != nullptr ? mixParam->load() : 0.3f);
         if (isMixModulated) {
             ImGui::BeginDisabled();
+        }
+        // Draw inline pin for Mix Mod (channel 4)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(4))  // Channel 4 = Mix Mod
+                ImGui::SameLine();
         }
         if (ImGui::SliderFloat("Mix", &mix, 0.0f, 1.0f)) {
             if (!isMixModulated) {
@@ -282,21 +301,15 @@ public:
         ImGui::Spacing();
         
         ImGui::PopItemWidth();
+        ImGui::PopID();
     }
 
     void drawIoPins(const NodePinHelpers& helpers) override
     {
+        // Only draw audio pins - modulation pins (channels 2, 3, 4) are now inline
         helpers.drawParallelPins("In L", 0, "Out L", 0);
         helpers.drawParallelPins("In R", 1, "Out R", 1);
-
-        // CORRECTED MODULATION PINS - Use absolute channel indices
-        int busIdx, chanInBus;
-        if (getParamRouting("timeMs", busIdx, chanInBus))
-            helpers.drawParallelPins("Time Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-        if (getParamRouting("feedback", busIdx, chanInBus))
-            helpers.drawParallelPins("Feedback Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-        if (getParamRouting("mix", busIdx, chanInBus))
-            helpers.drawParallelPins("Mix Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
+        // Time Mod (ch 2), Feedback Mod (ch 3), Mix Mod (ch 4) are drawn inline in drawParametersInNode
     }
 
     bool usesCustomPinLayout() const override { return true; }

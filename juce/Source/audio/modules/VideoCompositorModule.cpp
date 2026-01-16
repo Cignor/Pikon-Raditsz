@@ -6,6 +6,7 @@
 
 #if defined(PRESET_CREATOR_UI)
 #include <imgui.h>
+#include <imgui_internal.h> // For WorkRect workaround to fix widget bleeding in nodes
 #include "../../preset_creator/theme/ThemeManager.h"
 #endif
 
@@ -1259,6 +1260,23 @@ void VideoCompositorModule::drawParametersInNode(
     const std::function<void()>&                            onModificationEnded)
 {
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
+
+    // === WORKAROUND FOR IMNODES WIDGET BLEEDING ===
+    // Widgets like CollapsingHeader, SliderFloat, etc. use WorkRect.Max.x which
+    // is the entire canvas in ImNodes, causing them to extend beyond node bounds.
+    // Solution: Temporarily constrain WorkRect and ContentRegionRect to node width.
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float  cursorX = ImGui::GetCursorPosX();
+    const float  nodeRightEdge = cursorX + itemWidth;
+
+    // Save original values
+    const float savedWorkRectMaxX = window->WorkRect.Max.x;
+    const float savedContentRegionMaxX = window->ContentRegionRect.Max.x;
+
+    // Constrain to node width
+    window->WorkRect.Max.x = juce::jmin(savedWorkRectMaxX, nodeRightEdge);
+    window->ContentRegionRect.Max.x = juce::jmin(savedContentRegionMaxX, nodeRightEdge);
+
     ImGui::PushItemWidth(itemWidth);
 
     // Global Options
@@ -1323,14 +1341,32 @@ void VideoCompositorModule::drawParametersInNode(
 
     for (int i = 0; i < numLayers; ++i)
     {
+        ImGui::PushID(i); // CRITICAL: Unique ID per layer to prevent conflicts
+
         const juce::String layerName = "Layer " + juce::String(i + 1);
         const juce::String layerNum = juce::String(i + 1);
 
-        bool layerExpanded =
-            ImGui::CollapsingHeader(layerName.toRawUTF8(), ImGuiTreeNodeFlags_DefaultOpen);
+        // Set default open state (first layer only, on first use)
+        ImGui::SetNextItemOpen(i < 1, ImGuiCond_Once);
+
+        // Use TreeNodeEx with SpanAvailWidth to properly fill the node width without bleeding
+        // This ensures the collapsible header respects the node boundaries
+        bool layerExpanded = ImGui::TreeNodeEx(
+            layerName.toRawUTF8(),
+            ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed |
+                ImGuiTreeNodeFlags_AllowOverlap);
 
         if (layerExpanded)
         {
+            // Use a fixed slider width based on itemWidth, accounting for the TreeNodeEx indent
+            // TreeNodeEx adds ~20px indent automatically, and we want sliders to fit
+            float sliderWidth = itemWidth - 100.0f; // Reserve space for labels
+            if (sliderWidth < 100.0f)
+                sliderWidth = 100.0f; // Minimum width
+
+            // Push a width that fits within the node
+            ImGui::PushItemWidth(sliderWidth);
+
             // Opacity
             bool  opacityMod = isParamModulated("layer" + layerNum + "_opacity");
             float opacity = opacityMod
@@ -1340,8 +1376,7 @@ void VideoCompositorModule::drawParametersInNode(
                                 : (layerOpacityParams[i] ? layerOpacityParams[i]->load() : 1.0f);
             if (opacityMod)
                 ImGui::BeginDisabled();
-            if (ImGui::SliderFloat(
-                    ("Opacity##" + layerNum).toRawUTF8(), &opacity, 0.0f, 1.0f, "%.2f"))
+            if (ImGui::SliderFloat("Opacity", &opacity, 0.0f, 1.0f, "%.2f"))
             {
                 if (!opacityMod && layerOpacityParams[i])
                 {
@@ -1361,18 +1396,38 @@ void VideoCompositorModule::drawParametersInNode(
                 ImGui::EndDisabled();
 
             // Blend Mode
+            bool blendModeMod = isParamModulated("layer" + layerNum + "_blendMode");
+            if (blendModeMod)
+                ImGui::BeginDisabled();
             int blendModeIdx = layerBlendModeParams[i] ? layerBlendModeParams[i]->getIndex() : 0;
             const char* blendModeItems[19];
             for (int j = 0; j < 19; ++j)
                 blendModeItems[j] = blendModeNames[j].toRawUTF8();
 
-            if (ImGui::Combo(
-                    ("Blend Mode##" + layerNum).toRawUTF8(), &blendModeIdx, blendModeItems, 19))
+            if (ImGui::Combo("Blend", &blendModeIdx, blendModeItems, 19))
             {
-                if (layerBlendModeParams[i])
+                if (!blendModeMod && layerBlendModeParams[i])
+                {
                     layerBlendModeParams[i]->setValueNotifyingHost((float)blendModeIdx / 18.0f);
-                onModificationEnded();
+                    onModificationEnded();
+                }
             }
+            // Scroll-edit for blend mode combo
+            if (!blendModeMod && ImGui::IsItemHovered())
+            {
+                const float wheel = ImGui::GetIO().MouseWheel;
+                if (wheel != 0.0f)
+                {
+                    const int newIdx = juce::jlimit(0, 18, blendModeIdx + (wheel > 0.0f ? -1 : 1));
+                    if (newIdx != blendModeIdx && layerBlendModeParams[i])
+                    {
+                        layerBlendModeParams[i]->setValueNotifyingHost((float)newIdx / 18.0f);
+                        onModificationEnded();
+                    }
+                }
+            }
+            if (blendModeMod)
+                ImGui::EndDisabled();
 
             // Position X
             bool  posXMod = isParamModulated("layer" + layerNum + "_posX");
@@ -1382,8 +1437,7 @@ void VideoCompositorModule::drawParametersInNode(
                                  : (layerPosXParams[i] ? layerPosXParams[i]->load() : 0.0f);
             if (posXMod)
                 ImGui::BeginDisabled();
-            if (ImGui::SliderFloat(
-                    ("Position X##" + layerNum).toRawUTF8(), &posX, -1.0f, 1.0f, "%.2f"))
+            if (ImGui::SliderFloat("Pos X", &posX, -1.0f, 1.0f, "%.2f"))
             {
                 if (!posXMod && layerPosXParams[i])
                 {
@@ -1410,8 +1464,7 @@ void VideoCompositorModule::drawParametersInNode(
                                  : (layerPosYParams[i] ? layerPosYParams[i]->load() : 0.0f);
             if (posYMod)
                 ImGui::BeginDisabled();
-            if (ImGui::SliderFloat(
-                    ("Position Y##" + layerNum).toRawUTF8(), &posY, -1.0f, 1.0f, "%.2f"))
+            if (ImGui::SliderFloat("Pos Y", &posY, -1.0f, 1.0f, "%.2f"))
             {
                 if (!posYMod && layerPosYParams[i])
                 {
@@ -1439,8 +1492,7 @@ void VideoCompositorModule::drawParametersInNode(
                                : (layerScaleXParams[i] ? layerScaleXParams[i]->load() : 1.0f);
             if (scaleXMod)
                 ImGui::BeginDisabled();
-            if (ImGui::SliderFloat(
-                    ("Scale X##" + layerNum).toRawUTF8(), &scaleX, 0.1f, 5.0f, "%.2f"))
+            if (ImGui::SliderFloat("Scale X", &scaleX, 0.1f, 5.0f, "%.2f"))
             {
                 if (!scaleXMod && layerScaleXParams[i])
                 {
@@ -1468,8 +1520,7 @@ void VideoCompositorModule::drawParametersInNode(
                                : (layerScaleYParams[i] ? layerScaleYParams[i]->load() : 1.0f);
             if (scaleYMod)
                 ImGui::BeginDisabled();
-            if (ImGui::SliderFloat(
-                    ("Scale Y##" + layerNum).toRawUTF8(), &scaleY, 0.1f, 5.0f, "%.2f"))
+            if (ImGui::SliderFloat("Scale Y", &scaleY, 0.1f, 5.0f, "%.2f"))
             {
                 if (!scaleYMod && layerScaleYParams[i])
                 {
@@ -1487,11 +1538,21 @@ void VideoCompositorModule::drawParametersInNode(
                     scaleY);
             if (scaleYMod)
                 ImGui::EndDisabled();
+
+            ImGui::PopItemWidth(); // Match PushItemWidth
+            ImGui::TreePop();      // Match TreeNodeEx
         }
+
+        ImGui::PopID(); // Match PushID
     }
 
     drawPerformanceMetrics(itemWidth);
     ImGui::PopItemWidth();
+
+    // === RESTORE WORKRECT VALUES ===
+    // Restore original WorkRect and ContentRegionRect after drawing all widgets
+    window->WorkRect.Max.x = savedWorkRectMaxX;
+    window->ContentRegionRect.Max.x = savedContentRegionMaxX;
 }
 
 void VideoCompositorModule::drawIoPins(const NodePinHelpers& helpers)

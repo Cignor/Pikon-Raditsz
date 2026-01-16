@@ -7,18 +7,19 @@
 
 // Corrected constructor with two separate stereo inputs
 MixerModuleProcessor::MixerModuleProcessor()
-    : ModuleProcessor (BusesProperties()
-        .withInput ("In A", juce::AudioChannelSet::stereo(), true)  // Bus 0
-        .withInput ("In B", juce::AudioChannelSet::stereo(), true)  // Bus 1
-        .withInput ("Gain Mod", juce::AudioChannelSet::mono(), true)
-        .withInput ("Pan Mod", juce::AudioChannelSet::mono(), true)
-        .withInput ("X-Fade Mod", juce::AudioChannelSet::mono(), true)
-        .withOutput("Out", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "MixerParams", createParameterLayout())
+    : ModuleProcessor(
+          BusesProperties()
+              .withInput("In A", juce::AudioChannelSet::stereo(), true) // Bus 0
+              .withInput("In B", juce::AudioChannelSet::stereo(), true) // Bus 1
+              .withInput("Gain Mod", juce::AudioChannelSet::mono(), true)
+              .withInput("Pan Mod", juce::AudioChannelSet::mono(), true)
+              .withInput("X-Fade Mod", juce::AudioChannelSet::mono(), true)
+              .withOutput("Out", juce::AudioChannelSet::stereo(), true)),
+      apvts(*this, nullptr, "MixerParams", createParameterLayout())
 {
-    gainParam      = apvts.getRawParameterValue ("gain");
-    panParam       = apvts.getRawParameterValue ("pan");
-    crossfadeParam = apvts.getRawParameterValue ("crossfade"); // Get the new parameter
+    gainParam = apvts.getRawParameterValue("gain");
+    panParam = apvts.getRawParameterValue("pan");
+    crossfadeParam = apvts.getRawParameterValue("crossfade"); // Get the new parameter
 
     // Initialize value tooltips for the stereo output
     lastOutputValues.push_back(std::make_unique<std::atomic<float>>(0.0f));
@@ -29,27 +30,42 @@ MixerModuleProcessor::MixerModuleProcessor()
 juce::AudioProcessorValueTreeState::ParameterLayout MixerModuleProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
-    p.push_back (std::make_unique<juce::AudioParameterFloat> ("gain", "Gain", juce::NormalisableRange<float> (-60.0f, 6.0f, 0.01f), 0.0f));
-    p.push_back (std::make_unique<juce::AudioParameterFloat> ("pan",  "Pan",  juce::NormalisableRange<float> (-1.0f, 1.0f), 0.0f));
-    p.push_back (std::make_unique<juce::AudioParameterFloat> ("crossfade",  "Crossfade",  juce::NormalisableRange<float> (-1.0f, 1.0f), 0.0f)); // A <-> B
-    return { p.begin(), p.end() };
+    p.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "gain", "Gain", juce::NormalisableRange<float>(-60.0f, 6.0f, 0.01f), 0.0f));
+    p.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "pan", "Pan", juce::NormalisableRange<float>(-1.0f, 1.0f), 0.0f));
+    p.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "crossfade",
+            "Crossfade",
+            juce::NormalisableRange<float>(-1.0f, 1.0f),
+            0.0f)); // A <-> B
+    return {p.begin(), p.end()};
 }
 
-void MixerModuleProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void MixerModuleProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    juce::ignoreUnused (sampleRate, samplesPerBlock);
+    juce::ignoreUnused(sampleRate, samplesPerBlock);
 
 #if defined(PRESET_CREATOR_UI)
     vizInputABuffer.setSize(2, vizBufferSize, false, true, true);
     vizInputBBuffer.setSize(2, vizBufferSize, false, true, true);
     vizOutputBuffer.setSize(2, vizBufferSize, false, true, true);
     vizWritePos = 0;
-    for (auto& v : vizData.inputAWaveformL) v.store(0.0f);
-    for (auto& v : vizData.inputAWaveformR) v.store(0.0f);
-    for (auto& v : vizData.inputBWaveformL) v.store(0.0f);
-    for (auto& v : vizData.inputBWaveformR) v.store(0.0f);
-    for (auto& v : vizData.outputWaveformL) v.store(0.0f);
-    for (auto& v : vizData.outputWaveformR) v.store(0.0f);
+    for (auto& v : vizData.inputAWaveformL)
+        v.store(0.0f);
+    for (auto& v : vizData.inputAWaveformR)
+        v.store(0.0f);
+    for (auto& v : vizData.inputBWaveformL)
+        v.store(0.0f);
+    for (auto& v : vizData.inputBWaveformR)
+        v.store(0.0f);
+    for (auto& v : vizData.outputWaveformL)
+        v.store(0.0f);
+    for (auto& v : vizData.outputWaveformR)
+        v.store(0.0f);
     vizData.currentCrossfade.store(0.0f);
     vizData.currentGainDb.store(0.0f);
     vizData.currentPan.store(0.0f);
@@ -61,10 +77,10 @@ void MixerModuleProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
 }
 
 // Completely rewritten processBlock for crossfading
-void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+void MixerModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    juce::ignoreUnused (midi);
-    
+    juce::ignoreUnused(midi);
+
     auto inA = getBusBuffer(buffer, true, 0);
     auto inB = getBusBuffer(buffer, true, 1);
     auto out = getBusBuffer(buffer, false, 0);
@@ -112,7 +128,7 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     float gainModCV = 0.0f;
     float panModCV = 0.0f;
     float crossfadeModCV = 0.0f;
-    
+
     // Check if gain mod bus is connected and read CV
     if (isParamInputConnected("gain"))
     {
@@ -120,7 +136,7 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         if (gainModBus.getNumChannels() > 0)
             gainModCV = gainModBus.getReadPointer(0)[0]; // Read first sample
     }
-    
+
     // Check if pan mod bus is connected and read CV
     if (isParamInputConnected("pan"))
     {
@@ -128,7 +144,7 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         if (panModBus.getNumChannels() > 0)
             panModCV = panModBus.getReadPointer(0)[0]; // Read first sample
     }
-    
+
     // Check if crossfade mod bus is connected and read CV
     if (isParamInputConnected("x-fade"))
     {
@@ -159,8 +175,8 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     {
         const float* srcA = (ch < inA.getNumChannels()) ? inA.getReadPointer(ch) : nullptr;
         const float* srcB = (ch < inB.getNumChannels()) ? inB.getReadPointer(ch) : nullptr;
-        float* dst = out.getWritePointer(ch);
-        
+        float*       dst = out.getWritePointer(ch);
+
         for (int i = 0; i < numSamples; ++i)
         {
             const float a = srcA ? srcA[i] : 0.0f;
@@ -179,9 +195,10 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     }
     else
     {
-        masterGain = juce::Decibels::decibelsToGain(gainParam != nullptr ? gainParam->load() : 0.0f);
+        masterGain =
+            juce::Decibels::decibelsToGain(gainParam != nullptr ? gainParam->load() : 0.0f);
     }
-    
+
     float pan = 0.0f;
     if (isParamInputConnected("pan"))
     {
@@ -202,14 +219,19 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 
     // Store live modulated values for UI display
     setLiveParamValue("crossfade_live", crossfade);
-    setLiveParamValue("gain_live", isParamInputConnected("gain") ? (-60.0f + gainModCV * 66.0f) : (gainParam != nullptr ? gainParam->load() : 0.0f));
+    setLiveParamValue(
+        "gain_live",
+        isParamInputConnected("gain") ? (-60.0f + gainModCV * 66.0f)
+                                      : (gainParam != nullptr ? gainParam->load() : 0.0f));
     setLiveParamValue("pan_live", pan);
 
     // Update tooltips
     if (lastOutputValues.size() >= 2)
     {
-        if (lastOutputValues[0]) lastOutputValues[0]->store(out.getSample(0, numSamples - 1));
-        if (lastOutputValues[1]) lastOutputValues[1]->store(out.getSample(1, numSamples - 1));
+        if (lastOutputValues[0])
+            lastOutputValues[0]->store(out.getSample(0, numSamples - 1));
+        if (lastOutputValues[1])
+            lastOutputValues[1]->store(out.getSample(1, numSamples - 1));
     }
 
 #if defined(PRESET_CREATOR_UI)
@@ -237,15 +259,24 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     const int stride = vizBufferSize / VizData::waveformPoints;
     for (int i = 0; i < VizData::waveformPoints; ++i)
     {
-        const int readIdx = (vizWritePos - VizData::waveformPoints * stride + i * stride + vizBufferSize) % vizBufferSize;
-        if (vizInputABuffer.getNumChannels() > 0 && vizInputBBuffer.getNumChannels() > 0 && vizOutputBuffer.getNumChannels() > 0)
+        const int readIdx =
+            (vizWritePos - VizData::waveformPoints * stride + i * stride + vizBufferSize) %
+            vizBufferSize;
+        if (vizInputABuffer.getNumChannels() > 0 && vizInputBBuffer.getNumChannels() > 0 &&
+            vizOutputBuffer.getNumChannels() > 0)
         {
             vizData.inputAWaveformL[i].store(vizInputABuffer.getSample(0, readIdx));
-            vizData.inputAWaveformR[i].store(vizInputABuffer.getNumChannels() > 1 ? vizInputABuffer.getSample(1, readIdx) : vizInputABuffer.getSample(0, readIdx));
+            vizData.inputAWaveformR[i].store(
+                vizInputABuffer.getNumChannels() > 1 ? vizInputABuffer.getSample(1, readIdx)
+                                                     : vizInputABuffer.getSample(0, readIdx));
             vizData.inputBWaveformL[i].store(vizInputBBuffer.getSample(0, readIdx));
-            vizData.inputBWaveformR[i].store(vizInputBBuffer.getNumChannels() > 1 ? vizInputBBuffer.getSample(1, readIdx) : vizInputBBuffer.getSample(0, readIdx));
+            vizData.inputBWaveformR[i].store(
+                vizInputBBuffer.getNumChannels() > 1 ? vizInputBBuffer.getSample(1, readIdx)
+                                                     : vizInputBBuffer.getSample(0, readIdx));
             vizData.outputWaveformL[i].store(vizOutputBuffer.getSample(0, readIdx));
-            vizData.outputWaveformR[i].store(vizOutputBuffer.getNumChannels() > 1 ? vizOutputBuffer.getSample(1, readIdx) : vizOutputBuffer.getSample(0, readIdx));
+            vizData.outputWaveformR[i].store(
+                vizOutputBuffer.getNumChannels() > 1 ? vizOutputBuffer.getSample(1, readIdx)
+                                                     : vizOutputBuffer.getSample(0, readIdx));
         }
     }
 
@@ -270,31 +301,38 @@ void MixerModuleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     vizData.outputLevelDbL.store(juce::Decibels::gainToDecibels(outputRmsL, -60.0f));
     vizData.outputLevelDbR.store(juce::Decibels::gainToDecibels(outputRmsR, -60.0f));
     vizData.currentCrossfade.store(crossfade);
-    vizData.currentGainDb.store(isParamInputConnected("gain") ? (-60.0f + gainModCV * 66.0f) : (gainParam != nullptr ? gainParam->load() : 0.0f));
+    vizData.currentGainDb.store(
+        isParamInputConnected("gain") ? (-60.0f + gainModCV * 66.0f)
+                                      : (gainParam != nullptr ? gainParam->load() : 0.0f));
     vizData.currentPan.store(pan);
 #endif
 }
 
 // Updated UI drawing code
 #if defined(PRESET_CREATOR_UI)
-void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void MixerModuleProcessor::drawParametersInNode(
+    float                                                   itemWidth,
+    const std::function<bool(const juce::String& paramId)>& isParamModulated,
+    const std::function<void()>&                            onModificationEnded,
+    const NodePinHelpers*                                   pinHelpers)
 {
-    auto& ap = getAPVTS();
+    auto&       ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
-    
+
     ImGui::PushID(this); // Unique ID for this node's UI - must be at start
-    
+
     // Helper for tooltips
     auto HelpMarkerMixer = [](const char* desc) {
         ImGui::TextDisabled("(?)");
-        if (ImGui::BeginItemTooltip()) {
+        if (ImGui::BeginItemTooltip())
+        {
             ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
             ImGui::TextUnformatted(desc);
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
     };
-    
+
     float gainDb = gainParam != nullptr ? gainParam->load() : 0.0f;
     float pan = panParam != nullptr ? panParam->load() : 0.0f;
     float crossfade = crossfadeParam != nullptr ? crossfadeParam->load() : 0.0f;
@@ -307,14 +345,33 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
 
     // Crossfade Slider
     bool isXfModulated = isParamModulated("x-fade");
-    if (isXfModulated) {
+    if (isXfModulated)
+    {
         crossfade = getLiveParamValueFor("x-fade", "crossfade_live", crossfade);
         ImGui::BeginDisabled();
     }
-    if (ImGui::SliderFloat("A <-> B", &crossfade, -1.0f, 1.0f)) if (!isXfModulated) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("crossfade"))) *p = crossfade;
-    if (!isXfModulated) adjustParamOnWheel(ap.getParameter("crossfade"), "crossfade", crossfade);
-    if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
-    if (isXfModulated) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
+    // Draw inline pin for X-Fade Mod (channel 6)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(6)) // Channel 6 = X-Fade Mod
+            ImGui::SameLine();
+    }
+    if (ImGui::SliderFloat("A <-> B", &crossfade, -1.0f, 1.0f))
+        if (!isXfModulated)
+            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("crossfade")))
+                *p = crossfade;
+    if (!isXfModulated)
+        adjustParamOnWheel(ap.getParameter("crossfade"), "crossfade", crossfade);
+    if (ImGui::IsItemDeactivatedAfterEdit())
+    {
+        onModificationEnded();
+    }
+    if (isXfModulated)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
     ImGui::SameLine();
     HelpMarkerMixer("Crossfade between inputs A and B\n-1 = A only, 0 = equal mix, +1 = B only");
 
@@ -351,25 +408,29 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
     const float outputLevelDbR = vizData.outputLevelDbR.load();
 
     // Waveform visualization in child window
-    const float waveHeight = 140.0f;
-    const ImVec2 graphSize(itemWidth, waveHeight);
-    const ImGuiWindowFlags childFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    const float            waveHeight = 140.0f;
+    const ImVec2           graphSize(itemWidth, waveHeight);
+    const ImGuiWindowFlags childFlags =
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     if (ImGui::BeginChild("MixerViz", graphSize, false, childFlags))
     {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        ImDrawList*  drawList = ImGui::GetWindowDrawList();
         const ImVec2 p0 = ImGui::GetWindowPos();
         const ImVec2 p1 = ImVec2(p0.x + graphSize.x, p0.y + graphSize.y);
-        
+
         // Background
         const ImU32 bgColor = ThemeManager::getInstance().getCanvasBackground();
         drawList->AddRectFilled(p0, p1, bgColor, 4.0f);
-        
+
         // Clip to graph area
         drawList->PushClipRect(p0, p1, true);
-        
-        const ImU32 inputAColor = ImGui::ColorConvertFloat4ToU32(theme.modulation.frequency);  // Cyan
-        const ImU32 inputBColor = ImGui::ColorConvertFloat4ToU32(theme.modulation.timbre);    // Orange/Yellow
-        const ImU32 outputColor = ImGui::ColorConvertFloat4ToU32(theme.modulation.amplitude);  // Magenta/Pink - distinct from both inputs
+
+        const ImU32 inputAColor =
+            ImGui::ColorConvertFloat4ToU32(theme.modulation.frequency); // Cyan
+        const ImU32 inputBColor =
+            ImGui::ColorConvertFloat4ToU32(theme.modulation.timbre); // Orange/Yellow
+        const ImU32 outputColor = ImGui::ColorConvertFloat4ToU32(
+            theme.modulation.amplitude); // Magenta/Pink - distinct from both inputs
         const ImU32 centerLineColor = IM_COL32(150, 150, 150, 100);
 
         // Draw output waveforms
@@ -392,7 +453,11 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
             {
                 ImVec4 colorVec4 = ImGui::ColorConvertU32ToFloat4(inputAColor);
                 colorVec4.w = 0.3f; // Very transparent for background
-                drawList->AddLine(ImVec2(prevX, prevY), ImVec2(x, y), ImGui::ColorConvertFloat4ToU32(colorVec4), 1.5f);
+                drawList->AddLine(
+                    ImVec2(prevX, prevY),
+                    ImVec2(x, y),
+                    ImGui::ColorConvertFloat4ToU32(colorVec4),
+                    1.5f);
             }
             prevX = x;
             prevY = y;
@@ -410,7 +475,11 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
             {
                 ImVec4 colorVec4 = ImGui::ColorConvertU32ToFloat4(inputBColor);
                 colorVec4.w = 0.35f; // Slightly more visible than A
-                drawList->AddLine(ImVec2(prevX, prevY), ImVec2(x, y), ImGui::ColorConvertFloat4ToU32(colorVec4), 1.8f);
+                drawList->AddLine(
+                    ImVec2(prevX, prevY),
+                    ImVec2(x, y),
+                    ImGui::ColorConvertFloat4ToU32(colorVec4),
+                    1.8f);
             }
             prevX = x;
             prevY = y;
@@ -431,7 +500,7 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
         }
 
         drawList->PopClipRect();
-        
+
         // Level meters overlay
         ImGui::SetCursorPos(ImVec2(4, waveHeight + 4));
         const float inputANorm = juce::jlimit(0.0f, 1.0f, (inputALevelDb + 60.0f) / 60.0f);
@@ -443,35 +512,43 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, inputAColor);
         ImGui::ProgressBar(inputANorm, ImVec2(graphSize.x * 0.4f, 0), "");
         ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("%.0f%%", inputANorm * 100.0f);
+        ImGui::SameLine();
+        ImGui::Text("%.0f%%", inputANorm * 100.0f);
 
         ImGui::Text("In B: %.1f dB", inputBLevelDb);
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, inputBColor);
         ImGui::ProgressBar(inputBNorm, ImVec2(graphSize.x * 0.4f, 0), "");
         ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("%.0f%%", inputBNorm * 100.0f);
+        ImGui::SameLine();
+        ImGui::Text("%.0f%%", inputBNorm * 100.0f);
 
         ImGui::Text("Out L: %.1f dB", outputLevelDbL);
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outputColor);
         ImGui::ProgressBar(outputLNorm, ImVec2(graphSize.x * 0.4f, 0), "");
         ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("%.0f%%", outputLNorm * 100.0f);
+        ImGui::SameLine();
+        ImGui::Text("%.0f%%", outputLNorm * 100.0f);
 
         ImGui::Text("Out R: %.1f dB", outputLevelDbR);
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, outputColor);
         ImGui::ProgressBar(outputRNorm, ImVec2(graphSize.x * 0.4f, 0), "");
         ImGui::PopStyleColor();
-        ImGui::SameLine(); ImGui::Text("%.0f%%", outputRNorm * 100.0f);
+        ImGui::SameLine();
+        ImGui::Text("%.0f%%", outputRNorm * 100.0f);
 
         // Parameter readouts
-        ImGui::Text("Crossfade: %.2f  |  Gain: %.1f dB  |  Pan: %.2f", currentCrossfade, currentGainDb, currentPan);
-        
+        ImGui::Text(
+            "Crossfade: %.2f  |  Gain: %.1f dB  |  Pan: %.2f",
+            currentCrossfade,
+            currentGainDb,
+            currentPan);
+
         // Invisible drag blocker
         ImGui::SetCursorPos(ImVec2(0, 0));
         ImGui::InvisibleButton("##mixerVizDrag", graphSize);
     }
     ImGui::EndChild();
-    
+
     ImGui::Spacing();
     ImGui::Spacing();
 
@@ -481,27 +558,65 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
 
     // Gain Slider
     bool isGainModulated = isParamModulated("gain");
-    if (isGainModulated) {
+    if (isGainModulated)
+    {
         gainDb = getLiveParamValueFor("gain", "gain_live", gainDb);
         ImGui::BeginDisabled();
     }
-    if (ImGui::SliderFloat("Gain dB", &gainDb, -60.0f, 6.0f)) if (!isGainModulated) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("gain"))) *p = gainDb;
-    if (!isGainModulated) adjustParamOnWheel(ap.getParameter("gain"), "gainDb", gainDb);
-    if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
-    if (isGainModulated) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
+    // Draw inline pin for Gain Mod (channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4)) // Channel 4 = Gain Mod
+            ImGui::SameLine();
+    }
+    if (ImGui::SliderFloat("Gain dB", &gainDb, -60.0f, 6.0f))
+        if (!isGainModulated)
+            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("gain")))
+                *p = gainDb;
+    if (!isGainModulated)
+        adjustParamOnWheel(ap.getParameter("gain"), "gainDb", gainDb);
+    if (ImGui::IsItemDeactivatedAfterEdit())
+    {
+        onModificationEnded();
+    }
+    if (isGainModulated)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
     ImGui::SameLine();
     HelpMarkerMixer("Master output gain (-60 to +6 dB)");
 
     // Pan Slider
     bool isPanModulated = isParamModulated("pan");
-    if (isPanModulated) {
+    if (isPanModulated)
+    {
         pan = getLiveParamValueFor("pan", "pan_live", pan);
         ImGui::BeginDisabled();
     }
-    if (ImGui::SliderFloat("Pan", &pan, -1.0f, 1.0f)) if (!isPanModulated) if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("pan"))) *p = pan;
-    if (!isPanModulated) adjustParamOnWheel(ap.getParameter("pan"), "pan", pan);
-    if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
-    if (isPanModulated) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
+    // Draw inline pin for Pan Mod (channel 5)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(5)) // Channel 5 = Pan Mod
+            ImGui::SameLine();
+    }
+    if (ImGui::SliderFloat("Pan", &pan, -1.0f, 1.0f))
+        if (!isPanModulated)
+            if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("pan")))
+                *p = pan;
+    if (!isPanModulated)
+        adjustParamOnWheel(ap.getParameter("pan"), "pan", pan);
+    if (ImGui::IsItemDeactivatedAfterEdit())
+    {
+        onModificationEnded();
+    }
+    if (isPanModulated)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
     ImGui::SameLine();
     HelpMarkerMixer("Stereo panning\n-1 = full left, 0 = center, +1 = full right");
 
@@ -516,25 +631,34 @@ void MixerModuleProcessor::drawParametersInNode (float itemWidth, const std::fun
 
 void MixerModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Only draw audio pins - modulation pins (channels 4-6) are now inline
     helpers.drawParallelPins("In A L", 0, "Out L", 0);
     helpers.drawParallelPins("In A R", 1, "Out R", 1);
     helpers.drawParallelPins("In B L", 2, nullptr, -1);
     helpers.drawParallelPins("In B R", 3, nullptr, -1);
-
-    int busIdx, chanInBus;
-    if (getParamRouting("gain", busIdx, chanInBus))
-        helpers.drawParallelPins("Gain Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-    if (getParamRouting("pan", busIdx, chanInBus))
-        helpers.drawParallelPins("Pan Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-    if (getParamRouting("crossfade", busIdx, chanInBus))
-        helpers.drawParallelPins("X-Fade Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
+    // Gain Mod (ch 4), Pan Mod (ch 5), X-Fade Mod (ch 6) are drawn inline in drawParametersInNode
 }
 
-bool MixerModuleProcessor::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const
+bool MixerModuleProcessor::getParamRouting(
+    const juce::String& paramId,
+    int&                outBusIndex,
+    int&                outChannelIndexInBus) const
 {
     outChannelIndexInBus = 0;
-    if (paramId == "gain")      { outBusIndex = 2; return true; }
-    if (paramId == "pan")       { outBusIndex = 3; return true; }
-    if (paramId == "crossfade" || paramId == "x-fade") { outBusIndex = 4; return true; }
+    if (paramId == "gain")
+    {
+        outBusIndex = 2;
+        return true;
+    }
+    if (paramId == "pan")
+    {
+        outBusIndex = 3;
+        return true;
+    }
+    if (paramId == "crossfade" || paramId == "x-fade")
+    {
+        outBusIndex = 4;
+        return true;
+    }
     return false;
 }

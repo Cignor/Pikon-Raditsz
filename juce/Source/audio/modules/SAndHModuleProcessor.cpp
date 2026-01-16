@@ -535,7 +535,7 @@ static void HelpMarker(const char* desc)
     }
 }
 
-void SAndHModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void SAndHModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
@@ -653,8 +653,16 @@ void SAndHModuleProcessor::drawParametersInNode(float itemWidth, const std::func
     if (isThresholdModulated)
     {
         threshold = getLiveParamValueFor(paramIdThresholdMod, "threshold_live", threshold);
-        ImGui::BeginDisabled();
     }
+    
+    // Inline pin for Threshold Mod (Channel 3)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(3))
+            ImGui::SameLine();
+    }
+    
+    if (isThresholdModulated) ImGui::BeginDisabled();
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.0f, 0.3f));
     if (ImGui::SliderFloat("Threshold", &threshold, 0.0f, 1.0f, "%.3f"))
     {
@@ -674,8 +682,16 @@ void SAndHModuleProcessor::drawParametersInNode(float itemWidth, const std::func
     {
         const float edgeCV = getLiveParamValueFor(paramIdEdgeMod, "edge_live", static_cast<float>(edge));
         edge = juce::jlimit(0, 2, static_cast<int>(edgeCV));
-        ImGui::BeginDisabled();
     }
+    
+    // Inline pin for Edge Mod (Channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4))
+            ImGui::SameLine();
+    }
+    
+    if (isEdgeModulated) ImGui::BeginDisabled();
     const char* edges = "Rising\0Falling\0Both\0\0";
     if (ImGui::Combo("Edge", &edge, edges))
     {
@@ -706,8 +722,16 @@ void SAndHModuleProcessor::drawParametersInNode(float itemWidth, const std::func
     if (isSlewModulated)
     {
         slew = getLiveParamValueFor(paramIdSlewMod, "slew_live", slew);
-        ImGui::BeginDisabled();
     }
+    
+    // Inline pin for Slew Mod (Channel 5)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(5))
+            ImGui::SameLine();
+    }
+    
+    if (isSlewModulated) ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Slew", &slew, 0.0f, 1.0f, "%.3f"))
     {
         if (!isSlewModulated && slewParam)
@@ -749,19 +773,14 @@ void SAndHModuleProcessor::drawParametersInNode(float itemWidth, const std::func
 
 void SAndHModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    // All on single bus 0 with discrete channels (like BitCrusher)
+    // Channels 0-2 stay parallel (audio inputs and trigger)
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
     helpers.drawParallelPins("Trigger In", 2, "Smoothed Out", 2);
     
-    // CV mods - use getParamRouting to get correct channel indices
-    int busIdx, chanInBus;
-    if (getParamRouting(paramIdThresholdMod, busIdx, chanInBus))
-        helpers.drawParallelPins("Threshold Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), "Trigger Out", 3);
-    if (getParamRouting(paramIdEdgeMod, busIdx, chanInBus))
-        helpers.drawParallelPins("Edge Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-    if (getParamRouting(paramIdSlewMod, busIdx, chanInBus))
-        helpers.drawParallelPins("Slew Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
+    // Channels 3-5 are now inline (Threshold Mod, Edge Mod, Slew Mod)
+    // Draw remaining outputs (output-only pin)
+    helpers.drawParallelPins(nullptr, -1, "Trigger Out", 3);
 }
 
 juce::String SAndHModuleProcessor::getAudioInputLabel(int channel) const

@@ -171,6 +171,11 @@ void populateModuleDescriptions()
     descriptions["crop_video"] =
         "Crops a video stream based on CV signals (X, Y, Width, Height). Perfect for following "
         "detected objects or regions.";
+#ifndef AUDIO_ONLY_BUILD
+    descriptions["video_viewer"] =
+        "Displays video in a separate resizable window for viewing or OBS capture. The window can "
+        "be positioned on any monitor.";
+#endif
 }
 
 void populatePinDatabase()
@@ -510,7 +515,11 @@ void populatePinDatabase()
         {ModPin("Mix", "mix_mod", PinDataType::CV)});
     db["gate"] = ModulePinInfo(
         NodeWidth::Small,
-        {AudioPin("In L", 0, PinDataType::Audio), AudioPin("In R", 1, PinDataType::Audio)},
+        {AudioPin("In L", 0, PinDataType::Audio),
+         AudioPin("In R", 1, PinDataType::Audio),
+         AudioPin("Threshold Mod", 2, PinDataType::CV),
+         AudioPin("Attack Mod", 3, PinDataType::CV),
+         AudioPin("Release Mod", 4, PinDataType::CV)},
         {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
         {});
     db["drive"] = ModulePinInfo(
@@ -1228,7 +1237,10 @@ void populatePinDatabase()
 
     db["de_crackle"] = ModulePinInfo(
         NodeWidth::Small,
-        {AudioPin("In L", 0, PinDataType::Audio), AudioPin("In R", 1, PinDataType::Audio)},
+        {AudioPin("In L", 0, PinDataType::Audio), AudioPin("In R", 1, PinDataType::Audio),
+         AudioPin("Threshold Mod", 2, PinDataType::CV),
+         AudioPin("Smoothing Mod", 3, PinDataType::CV),
+         AudioPin("Amount Mod", 4, PinDataType::CV)},
         {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
         {});
 
@@ -1757,4 +1769,13 @@ void populatePinDatabase()
          ModPin("Center Y", "cropY_mod", PinDataType::CV),
          ModPin("Width", "cropW_mod", PinDataType::CV),
          ModPin("Height", "cropH_mod", PinDataType::CV)});
+
+#ifndef AUDIO_ONLY_BUILD
+    // Video Viewer Module - displays video in external window
+    db["video_viewer"] = ModulePinInfo(
+        NodeWidth::Small,
+        {AudioPin("Video In", 0, PinDataType::Video)}, // Video input
+        {},                                            // No outputs - display only
+        {});
+#endif
 }

@@ -321,10 +321,11 @@ juce::String PhaserModuleProcessor::getAudioOutputLabel(int channel) const
 }
 
 #if defined(PRESET_CREATOR_UI)
-void PhaserModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded)
+void PhaserModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
     auto& ap = getAPVTS();
+    ImGui::PushID(this);
     ImGui::PushItemWidth(itemWidth);
 
     auto HelpMarker = [](const char* desc) {
@@ -332,13 +333,21 @@ void PhaserModuleProcessor::drawParametersInNode(float itemWidth, const std::fun
         if (ImGui::BeginItemTooltip()) { ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f); ImGui::TextUnformatted(desc); ImGui::PopTextWrapPos(); ImGui::EndTooltip(); }
     };
 
-    auto drawSlider = [&](const char* label, const juce::String& paramId, const juce::String& modId, float min, float max, const char* format, const char* tooltip, ImGuiSliderFlags flags = 0)
+    auto drawSlider = [&](const char* label, const juce::String& paramId, const juce::String& modId, float min, float max, const char* format, const char* tooltip, ImGuiSliderFlags flags = 0, int channel = -1)
     {
         bool isMod = isParamModulated(modId);
         float value = isMod ? getLiveParamValueFor(modId, paramId + "_live", ap.getRawParameterValue(paramId)->load())
                             : ap.getRawParameterValue(paramId)->load();
         
         if (isMod) ImGui::BeginDisabled();
+        
+        // Draw inline pin if channel is specified and pinHelpers is available
+        if (channel >= 0 && pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+        
         if (ImGui::SliderFloat(label, &value, min, max, format, flags))
             if (!isMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramId)) = value;
         if (!isMod) adjustParamOnWheel(ap.getParameter(paramId), paramId, value);
@@ -460,11 +469,11 @@ void PhaserModuleProcessor::drawParametersInNode(float itemWidth, const std::fun
                         currentRate, currentCentre, currentDepth * 100.0f);
     ImGui::Spacing();
 
-    drawSlider("Rate", paramIdRate, paramIdRateMod, 0.01f, 10.0f, "%.2f Hz", "LFO sweep rate (0.01-10 Hz)", 0);
-    drawSlider("Depth", paramIdDepth, paramIdDepthMod, 0.0f, 1.0f, "%.2f", "Modulation depth (0-1)", 0);
-    drawSlider("Centre", paramIdCentreHz, paramIdCentreHzMod, 20.0f, 10000.0f, "%.0f Hz", "Center frequency of phase shift", ImGuiSliderFlags_Logarithmic);
-    drawSlider("Feedback", paramIdFeedback, paramIdFeedbackMod, -0.95f, 0.95f, "%.2f", "Feedback amount\nNegative = darker, Positive = brighter", 0);
-    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f", "Dry/wet mix (0-1)", 0);
+    drawSlider("Rate", paramIdRate, paramIdRateMod, 0.01f, 10.0f, "%.2f Hz", "LFO sweep rate (0.01-10 Hz)", 0, 2);  // Channel 2 = Rate Mod
+    drawSlider("Depth", paramIdDepth, paramIdDepthMod, 0.0f, 1.0f, "%.2f", "Modulation depth (0-1)", 0, 3);  // Channel 3 = Depth Mod
+    drawSlider("Centre", paramIdCentreHz, paramIdCentreHzMod, 20.0f, 10000.0f, "%.0f Hz", "Center frequency of phase shift", ImGuiSliderFlags_Logarithmic, 4);  // Channel 4 = Centre Mod
+    drawSlider("Feedback", paramIdFeedback, paramIdFeedbackMod, -0.95f, 0.95f, "%.2f", "Feedback amount\nNegative = darker, Positive = brighter", 0, 5);  // Channel 5 = Feedback Mod
+    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f", "Dry/wet mix (0-1)", 0, 6);  // Channel 6 = Mix Mod
 
     ImGui::Spacing();
     ImGui::Spacing();
@@ -539,17 +548,15 @@ void PhaserModuleProcessor::drawParametersInNode(float itemWidth, const std::fun
     }
 
     ImGui::PopItemWidth();
+    ImGui::PopID();
 }
 
 void PhaserModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Only draw audio pins - modulation pins (channels 2-6) are now inline
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
-    helpers.drawParallelPins("Rate Mod", 2, nullptr, -1);
-    helpers.drawParallelPins("Depth Mod", 3, nullptr, -1);
-    helpers.drawParallelPins("Centre Mod", 4, nullptr, -1);
-    helpers.drawParallelPins("Feedback Mod", 5, nullptr, -1);
-    helpers.drawParallelPins("Mix Mod", 6, nullptr, -1);
+    // Rate Mod (ch 2), Depth Mod (ch 3), Centre Mod (ch 4), Feedback Mod (ch 5), Mix Mod (ch 6) are drawn inline in drawParametersInNode
 }
 #endif
 

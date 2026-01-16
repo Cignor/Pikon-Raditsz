@@ -13,8 +13,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GateModuleProcessor::createP
 
 GateModuleProcessor::GateModuleProcessor()
     : ModuleProcessor(BusesProperties()
-          .withInput("Audio In", juce::AudioChannelSet::stereo(), true)
-          // For now, no modulation inputs. Can be added later if desired.
+          .withInput("Inputs", juce::AudioChannelSet::discreteChannels(5), true) // ch0-1: audio, ch2-4: mods
           .withOutput("Audio Out", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "GateParams", createParameterLayout())
 {
@@ -53,7 +52,7 @@ void GateModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     const int numSamples = buffer.getNumSamples();
     if (numSamples <= 0) return;
 
-    // Copy input to output
+    // Copy audio input to output (channels 0-1)
     const int numInputChannels = inBus.getNumChannels();
     const int numOutputChannels = outBus.getNumChannels();
 
@@ -83,14 +82,54 @@ void GateModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     
     const int numChannels = juce::jmin(numInputChannels, numOutputChannels);
 
-    // Get parameters
-    const float thresholdDb = thresholdParam != nullptr ? thresholdParam->load() : -40.0f;
+    // Check for modulation inputs and get CV pointers
+    const bool isThresholdMod = isParamInputConnected(paramIdThresholdMod);
+    const bool isAttackMod = isParamInputConnected(paramIdAttackMod);
+    const bool isReleaseMod = isParamInputConnected(paramIdReleaseMod);
+
+    const float* thresholdCV = isThresholdMod && inBus.getNumChannels() > 2 ? inBus.getReadPointer(2) : nullptr;
+    const float* attackCV = isAttackMod && inBus.getNumChannels() > 3 ? inBus.getReadPointer(3) : nullptr;
+    const float* releaseCV = isReleaseMod && inBus.getNumChannels() > 4 ? inBus.getReadPointer(4) : nullptr;
+
+    // Get base parameters
+    const float baseThresholdDb = thresholdParam != nullptr ? thresholdParam->load() : -40.0f;
+    const float baseAttackMs = attackParam != nullptr ? attackParam->load() : 1.0f;
+    const float baseReleaseMs = releaseParam != nullptr ? releaseParam->load() : 50.0f;
+
+    // Calculate effective parameters (with modulation) - use first sample for per-block processing
+    float thresholdDb = baseThresholdDb;
+    if (isThresholdMod && thresholdCV != nullptr)
+    {
+        const float cv = juce::jlimit(0.0f, 1.0f, thresholdCV[0]);
+        thresholdDb = juce::jmap(cv, -80.0f, 0.0f); // CV maps to full threshold range
+    }
+    thresholdDb = juce::jlimit(-80.0f, 0.0f, thresholdDb);
     const float thresholdLinear = juce::Decibels::decibelsToGain(thresholdDb);
-    // Convert attack/release times from ms to a per-sample coefficient
-    const float attackMs = juce::jmax(0.1f, attackParam != nullptr ? attackParam->load() : 1.0f);
-    const float releaseMs = juce::jmax(1.0f, releaseParam != nullptr ? releaseParam->load() : 50.0f);
+
+    float attackMs = baseAttackMs;
+    if (isAttackMod && attackCV != nullptr)
+    {
+        const float cv = juce::jlimit(0.0f, 1.0f, attackCV[0]);
+        attackMs = juce::jmap(cv, 0.1f, 100.0f); // CV maps to full attack range
+    }
+    attackMs = juce::jmax(0.1f, attackMs);
+
+    float releaseMs = baseReleaseMs;
+    if (isReleaseMod && releaseCV != nullptr)
+    {
+        const float cv = juce::jlimit(0.0f, 1.0f, releaseCV[0]);
+        releaseMs = juce::jmap(cv, 5.0f, 1000.0f); // CV maps to full release range
+    }
+    releaseMs = juce::jmax(1.0f, releaseMs);
+
+    // Convert attack/release times from ms to per-sample coefficients
     const float attackCoeff = 1.0f - std::exp(-1.0f / (attackMs * 0.001f * (float)currentSampleRate));
     const float releaseCoeff = 1.0f - std::exp(-1.0f / (releaseMs * 0.001f * (float)currentSampleRate));
+
+    // Store live values for UI display (CRITICAL: outside any conditional blocks)
+    setLiveParamValue("threshold_live", thresholdDb);
+    setLiveParamValue("attack_live", attackMs);
+    setLiveParamValue("release_live", releaseMs);
 
     auto* leftData = outBus.getWritePointer(0);
     auto* rightData = numChannels > 1 ? outBus.getWritePointer(1) : nullptr;
@@ -146,17 +185,26 @@ void GateModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     }
 }
 
-bool GateModuleProcessor::getParamRouting(const juce::String& /*paramId*/, int& /*outBusIndex*/, int& /*outChannelIndexInBus*/) const
+bool GateModuleProcessor::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const
 {
-    // No modulation inputs in this version
+    outBusIndex = 0; // All inputs are on bus 0
+    if (paramId == paramIdThresholdMod) { outChannelIndexInBus = 2; return true; }  // Threshold Mod
+    if (paramId == paramIdAttackMod) { outChannelIndexInBus = 3; return true; }     // Attack Mod
+    if (paramId == paramIdReleaseMod) { outChannelIndexInBus = 4; return true; }   // Release Mod
     return false;
 }
 
 juce::String GateModuleProcessor::getAudioInputLabel(int channel) const
 {
-    if (channel == 0) return "In L";
-    if (channel == 1) return "In R";
-    return {};
+    switch (channel)
+    {
+        case 0: return "In L";
+        case 1: return "In R";
+        case 2: return "Threshold Mod";
+        case 3: return "Attack Mod";
+        case 4: return "Release Mod";
+        default: return {};
+    }
 }
 
 juce::String GateModuleProcessor::getAudioOutputLabel(int channel) const
@@ -167,10 +215,11 @@ juce::String GateModuleProcessor::getAudioOutputLabel(int channel) const
 }
 
 #if defined(PRESET_CREATOR_UI)
-void GateModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>&, const std::function<void()>& onModificationEnded)
+void GateModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
 {
+    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
+    
     auto& ap = getAPVTS();
-    ImGui::PushID(this);
     ImGui::PushItemWidth(itemWidth);
 
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
@@ -268,17 +317,33 @@ void GateModuleProcessor::drawParametersInNode(float itemWidth, const std::funct
 
     ImGui::Spacing();
 
-    auto drawSlider = [&](const char* label, const juce::String& paramId, float min, float max, const char* format) {
-        float value = ap.getRawParameterValue(paramId)->load();
+    auto drawSlider = [&](const char* label, const juce::String& paramId, const juce::String& modId, float min, float max, const char* format, int channel) {
+        bool isMod = isParamModulated(modId);
+        float value = isMod ? getLiveParamValueFor(modId, paramId + juce::String("_live"), ap.getRawParameterValue(paramId)->load())
+                            : ap.getRawParameterValue(paramId)->load();
+        
+        if (isMod) ImGui::BeginDisabled();
+        
+        // Draw inline pin if channel is specified
+        if (channel >= 0 && pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+        
         if (ImGui::SliderFloat(label, &value, min, max, format))
-            *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramId)) = value;
-        adjustParamOnWheel(ap.getParameter(paramId), paramId, value);
+        {
+            if (!isMod)
+                *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramId)) = value;
+        }
+        if (!isMod) adjustParamOnWheel(ap.getParameter(paramId), paramId, value);
         if (ImGui::IsItemDeactivatedAfterEdit()) { onModificationEnded(); }
+        if (isMod) { ImGui::EndDisabled(); ImGui::SameLine(); ImGui::TextUnformatted("(mod)"); }
     };
 
-    drawSlider("Threshold", paramIdThreshold, -80.0f, 0.0f, "%.1f dB");
-    drawSlider("Attack", paramIdAttack, 0.1f, 100.0f, "%.1f ms");
-    drawSlider("Release", paramIdRelease, 5.0f, 1000.0f, "%.0f ms");
+    drawSlider("Threshold", paramIdThreshold, paramIdThresholdMod, -80.0f, 0.0f, "%.1f dB", 2);
+    drawSlider("Attack", paramIdAttack, paramIdAttackMod, 0.1f, 100.0f, "%.1f ms", 3);
+    drawSlider("Release", paramIdRelease, paramIdReleaseMod, 5.0f, 1000.0f, "%.0f ms", 4);
 
     ImGui::PopItemWidth();
     ImGui::PopID();
@@ -286,8 +351,10 @@ void GateModuleProcessor::drawParametersInNode(float itemWidth, const std::funct
 
 void GateModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
+    // Audio inputs and outputs stay as parallel pins
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
+    // Threshold Mod (ch 2), Attack Mod (ch 3), Release Mod (ch 4) are drawn inline in drawParametersInNode
 }
 #endif
 

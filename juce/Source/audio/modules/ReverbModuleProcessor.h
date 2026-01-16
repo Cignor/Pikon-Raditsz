@@ -30,7 +30,7 @@ public:
     std::vector<DynamicPinInfo> getDynamicOutputPins() const override;
 
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded) override
+    void drawParametersInNode (float itemWidth, const std::function<bool(const juce::String& paramId)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers = nullptr) override
     {
         auto& ap = getAPVTS();
         const auto& theme = ThemeManager::getInstance().getCurrentTheme();
@@ -376,6 +376,12 @@ public:
         if (isSizeModulated) {
             ImGui::BeginDisabled();
         }
+        // Draw inline pin for Size Mod (channel 2)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(2))  // Channel 2 = Size Mod
+                ImGui::SameLine();
+        }
         if (ImGui::SliderFloat("Size", &size, 0.0f, 1.0f)) {
             if (!isSizeModulated) {
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("size"))) *p = size;
@@ -391,6 +397,12 @@ public:
         if (isDampModulated) {
             ImGui::BeginDisabled();
         }
+        // Draw inline pin for Damp Mod (channel 3)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(3))  // Channel 3 = Damp Mod
+                ImGui::SameLine();
+        }
         if (ImGui::SliderFloat("Damp", &damp, 0.0f, 1.0f)) {
             if (!isDampModulated) {
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter("damp"))) *p = damp;
@@ -405,6 +417,12 @@ public:
         // Mix
         if (isMixModulated) {
             ImGui::BeginDisabled();
+        }
+        // Draw inline pin for Mix Mod (channel 4)
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            if (pinHelpers->drawInlineInputPin(4))  // Channel 4 = Mix Mod
+                ImGui::SameLine();
         }
         if (ImGui::SliderFloat("Mix", &mix, 0.0f, 1.0f)) {
             if (!isMixModulated) {
@@ -466,16 +484,10 @@ public:
 
     void drawIoPins(const NodePinHelpers& helpers) override
     {
+        // Only draw audio pins - modulation pins (channels 2, 3, 4) are now inline
         helpers.drawParallelPins("In L", 0, "Out L", 0);
         helpers.drawParallelPins("In R", 1, "Out R", 1);
-        
-        int busIdx, chanInBus;
-        if (getParamRouting("size", busIdx, chanInBus))
-            helpers.drawParallelPins("Size Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-        if (getParamRouting("damp", busIdx, chanInBus))
-            helpers.drawParallelPins("Damp Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
-        if (getParamRouting("mix", busIdx, chanInBus))
-            helpers.drawParallelPins("Mix Mod", getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus), nullptr, -1);
+        // Size Mod (ch 2), Damp Mod (ch 3), Mix Mod (ch 4) are drawn inline in drawParametersInNode
     }
 
     bool usesCustomPinLayout() const override { return true; }

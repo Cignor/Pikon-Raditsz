@@ -557,8 +557,8 @@ else()
     # CUDA Configuration
     set(WITH_CUDA ON CACHE BOOL "" FORCE)
     set(WITH_NVIDIA_NPP ON CACHE BOOL "" FORCE)
-    set(WITH_NVCUVID OFF)
-    set(WITH_NVCUVENC OFF)
+    set(WITH_NVCUVID ON CACHE BOOL "" FORCE)
+    set(WITH_NVCUVENC ON CACHE BOOL "" FORCE)
     
     set(CUDA_TOOLKIT_ROOT_DIR "${CUDAToolkit_TARGET_DIR}" CACHE PATH "" FORCE)
     set(CUDA_INCLUDE_DIRS "${CUDAToolkit_INCLUDE_DIRS}" CACHE PATH "" FORCE)
@@ -645,6 +645,12 @@ else()
     # Source-built: Use the opencv_world target directly
     set(OPENCV_LINK_LIBS opencv_world)
     message(STATUS "Using source-built OpenCV: opencv_world target")
+endif()
+
+# Explicitly add opencv_contrib cudacodec include (after source dirs are populated)
+if(EXISTS "${opencv_contrib_SOURCE_DIR}/modules/cudacodec/include")
+    include_directories(SYSTEM "${opencv_contrib_SOURCE_DIR}/modules/cudacodec/include")
+    message(STATUS "✓ Added cudacodec include path from: ${opencv_contrib_SOURCE_DIR}/modules/cudacodec/include")
 endif()
 
 else()
@@ -1092,6 +1098,8 @@ target_sources(ColliderApp PRIVATE
     Source/audio/modules/VideoCompositorModule.cpp
     Source/audio/modules/VideoDrawImpactModuleProcessor.h
     Source/audio/modules/VideoDrawImpactModuleProcessor.cpp
+    Source/audio/modules/VideoViewerModuleProcessor.h
+    Source/audio/modules/VideoViewerModuleProcessor.cpp
     Source/audio/modules/MovementDetectorModule.h
     Source/audio/modules/MovementDetectorModule.cpp
     Source/audio/modules/HumanDetectorModule.h
@@ -1543,6 +1551,8 @@ target_sources(PresetCreatorApp PRIVATE
     Source/audio/modules/VideoCompositorModule.cpp
     Source/audio/modules/VideoDrawImpactModuleProcessor.h
     Source/audio/modules/VideoDrawImpactModuleProcessor.cpp
+    Source/audio/modules/VideoViewerModuleProcessor.h
+    Source/audio/modules/VideoViewerModuleProcessor.cpp
     Source/audio/modules/MovementDetectorModule.h
     Source/audio/modules/MovementDetectorModule.cpp
     Source/audio/modules/HumanDetectorModule.h
