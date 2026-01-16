@@ -28,7 +28,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranulatorModuleProcessor::c
 
 GranulatorModuleProcessor::GranulatorModuleProcessor()
     : ModuleProcessor(BusesProperties()
-          .withInput("Inputs", juce::AudioChannelSet::discreteChannels(9), true) // Audio L/R, Trig, Density, Size, Position, Pitch, Gate, Mix
+          .withInput("Inputs", juce::AudioChannelSet::discreteChannels(12), true) // Audio L/R, Trig, Density, Size, Position, Spread, Pitch, Pitch Rand, Pan Rand, Gate, Mix
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "GranulatorParams", createParameterLayout())
 {
@@ -99,18 +99,24 @@ void GranulatorModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const bool hasDensityMod = isParamInputConnected(paramIdDensityMod);
     const bool hasSizeMod = isParamInputConnected(paramIdSizeMod);
     const bool hasPositionMod = isParamInputConnected(paramIdPositionMod);
+    const bool hasSpreadMod = isParamInputConnected(paramIdSpreadMod);
     const bool hasPitchMod = isParamInputConnected(paramIdPitchMod);
+    const bool hasPitchRandomMod = isParamInputConnected(paramIdPitchRandomMod);
+    const bool hasPanRandomMod = isParamInputConnected(paramIdPanRandomMod);
     const bool hasGateMod = isParamInputConnected(paramIdGateMod);
     const bool hasMixMod = isParamInputConnected(paramIdMixMod);
 
     // SAFE: Read input pointers BEFORE any output operations
-    const float* trigCVPtr   = (isTriggerConnected && inBus.getNumChannels() > 2) ? inBus.getReadPointer(2) : nullptr;
-    const float* densityPtr  = (hasDensityMod   && inBus.getNumChannels() > 3) ? inBus.getReadPointer(3) : nullptr;
-    const float* sizePtr     = (hasSizeMod      && inBus.getNumChannels() > 4) ? inBus.getReadPointer(4) : nullptr;
-    const float* posPtr      = (hasPositionMod  && inBus.getNumChannels() > 5) ? inBus.getReadPointer(5) : nullptr;
-    const float* pitchPtr    = (hasPitchMod     && inBus.getNumChannels() > 6) ? inBus.getReadPointer(6) : nullptr;
-    const float* gatePtr     = (hasGateMod      && inBus.getNumChannels() > 7) ? inBus.getReadPointer(7) : nullptr;
-    const float* mixPtr      = (hasMixMod       && inBus.getNumChannels() > 8) ? inBus.getReadPointer(8) : nullptr;
+    const float* trigCVPtr      = (isTriggerConnected && inBus.getNumChannels() > 2) ? inBus.getReadPointer(2) : nullptr;
+    const float* densityPtr    = (hasDensityMod   && inBus.getNumChannels() > 3) ? inBus.getReadPointer(3) : nullptr;
+    const float* sizePtr       = (hasSizeMod      && inBus.getNumChannels() > 4) ? inBus.getReadPointer(4) : nullptr;
+    const float* posPtr         = (hasPositionMod  && inBus.getNumChannels() > 5) ? inBus.getReadPointer(5) : nullptr;
+    const float* spreadPtr      = (hasSpreadMod    && inBus.getNumChannels() > 6) ? inBus.getReadPointer(6) : nullptr;
+    const float* pitchPtr       = (hasPitchMod     && inBus.getNumChannels() > 7) ? inBus.getReadPointer(7) : nullptr;
+    const float* pitchRandomPtr = (hasPitchRandomMod && inBus.getNumChannels() > 8) ? inBus.getReadPointer(8) : nullptr;
+    const float* panRandomPtr   = (hasPanRandomMod && inBus.getNumChannels() > 9) ? inBus.getReadPointer(9) : nullptr;
+    const float* gatePtr        = (hasGateMod      && inBus.getNumChannels() > 10) ? inBus.getReadPointer(10) : nullptr;
+    const float* mixPtr         = (hasMixMod       && inBus.getNumChannels() > 11) ? inBus.getReadPointer(11) : nullptr;
     
     // Get base parameter values ONCE
     const float baseMix = mixParam != nullptr ? mixParam->load() : 1.0f;
@@ -123,20 +129,26 @@ void GranulatorModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
     // EXTRA SAFETY: Copy CV channels we use into local buffers BEFORE any output writes,
     // so later writes cannot affect reads even if buffers alias (see DEBUG_INPUT_IMPORTANT.md).
-    juce::HeapBlock<float> trigCV, densityCV, sizeCV, posCV, pitchCV, gateCV, mixCV;
-    if (trigCVPtr)   { trigCV.malloc(numSamples);   std::memcpy(trigCV.get(),   trigCVPtr,   sizeof(float) * (size_t)numSamples); }
-    if (densityPtr)  { densityCV.malloc(numSamples);std::memcpy(densityCV.get(),densityPtr,  sizeof(float) * (size_t)numSamples); }
-    if (sizePtr)     { sizeCV.malloc(numSamples);   std::memcpy(sizeCV.get(),   sizePtr,     sizeof(float) * (size_t)numSamples); }
-    if (posPtr)      { posCV.malloc(numSamples);    std::memcpy(posCV.get(),    posPtr,      sizeof(float) * (size_t)numSamples); }
-    if (pitchPtr)    { pitchCV.malloc(numSamples);  std::memcpy(pitchCV.get(),  pitchPtr,    sizeof(float) * (size_t)numSamples); }
-    if (gatePtr)     { gateCV.malloc(numSamples);   std::memcpy(gateCV.get(),   gatePtr,     sizeof(float) * (size_t)numSamples); }
-    if (mixPtr)      { mixCV.malloc(numSamples);    std::memcpy(mixCV.get(),    mixPtr,      sizeof(float) * (size_t)numSamples); }
+    juce::HeapBlock<float> trigCV, densityCV, sizeCV, posCV, spreadCV, pitchCV, pitchRandomCV, panRandomCV, gateCV, mixCV;
+    if (trigCVPtr)      { trigCV.malloc(numSamples);        std::memcpy(trigCV.get(),        trigCVPtr,      sizeof(float) * (size_t)numSamples); }
+    if (densityPtr)     { densityCV.malloc(numSamples);     std::memcpy(densityCV.get(),     densityPtr,     sizeof(float) * (size_t)numSamples); }
+    if (sizePtr)        { sizeCV.malloc(numSamples);        std::memcpy(sizeCV.get(),        sizePtr,        sizeof(float) * (size_t)numSamples); }
+    if (posPtr)         { posCV.malloc(numSamples);         std::memcpy(posCV.get(),         posPtr,         sizeof(float) * (size_t)numSamples); }
+    if (spreadPtr)      { spreadCV.malloc(numSamples);       std::memcpy(spreadCV.get(),      spreadPtr,      sizeof(float) * (size_t)numSamples); }
+    if (pitchPtr)       { pitchCV.malloc(numSamples);        std::memcpy(pitchCV.get(),       pitchPtr,       sizeof(float) * (size_t)numSamples); }
+    if (pitchRandomPtr) { pitchRandomCV.malloc(numSamples);  std::memcpy(pitchRandomCV.get(), pitchRandomPtr, sizeof(float) * (size_t)numSamples); }
+    if (panRandomPtr)   { panRandomCV.malloc(numSamples);    std::memcpy(panRandomCV.get(),   panRandomPtr,   sizeof(float) * (size_t)numSamples); }
+    if (gatePtr)        { gateCV.malloc(numSamples);         std::memcpy(gateCV.get(),         gatePtr,        sizeof(float) * (size_t)numSamples); }
+    if (mixPtr)         { mixCV.malloc(numSamples);          std::memcpy(mixCV.get(),          mixPtr,         sizeof(float) * (size_t)numSamples); }
 
     // Get base parameters
     const float baseDensity = densityParam->load();
     const float baseSize = sizeParam->load();
     const float basePos = positionParam->load();
+    const float baseSpread = spreadParam->load();
     const float basePitch = pitchParam->load();
+    const float basePitchRandom = pitchRandomParam->load();
+    const float basePanRandom = panRandomParam->load();
     const float baseGate = gateParam->load();
 
     // Diagnostic: log CV connection state and first-sample values periodically (enabled in all builds)
@@ -229,11 +241,14 @@ void GranulatorModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         }
         
         // 3. Update smoothed parameters (with intra-block ramping if source is block-constant)
-        float densityCvSample  = densityCV.get() ? sampleCvOrRamp(densityCV, prevDensityCv, i) : std::numeric_limits<float>::quiet_NaN();
-        float sizeCvSample     = sizeCV.get()    ? sampleCvOrRamp(sizeCV,    prevSizeCv,    i) : std::numeric_limits<float>::quiet_NaN();
-        float positionCvSample = posCV.get()     ? sampleCvOrRamp(posCV,     prevPositionCv,i) : std::numeric_limits<float>::quiet_NaN();
-        float pitchCvSample    = pitchCV.get()   ? sampleCvOrRamp(pitchCV,   prevPitchCv,   i) : std::numeric_limits<float>::quiet_NaN();
-        float gateCvSample     = gateCV.get()    ? sampleCvOrRamp(gateCV,    prevGateCv,    i) : std::numeric_limits<float>::quiet_NaN();
+        float densityCvSample   = densityCV.get()      ? sampleCvOrRamp(densityCV,      prevDensityCv,   i) : std::numeric_limits<float>::quiet_NaN();
+        float sizeCvSample      = sizeCV.get()         ? sampleCvOrRamp(sizeCV,         prevSizeCv,      i) : std::numeric_limits<float>::quiet_NaN();
+        float positionCvSample  = posCV.get()          ? sampleCvOrRamp(posCV,          prevPositionCv,  i) : std::numeric_limits<float>::quiet_NaN();
+        float spreadCvSample    = spreadCV.get()       ? sampleCvOrRamp(spreadCV,       prevSpreadCv,    i) : std::numeric_limits<float>::quiet_NaN();
+        float pitchCvSample      = pitchCV.get()        ? sampleCvOrRamp(pitchCV,        prevPitchCv,     i) : std::numeric_limits<float>::quiet_NaN();
+        float pitchRandomCvSample = pitchRandomCV.get() ? sampleCvOrRamp(pitchRandomCV, prevPitchRandomCv, i) : std::numeric_limits<float>::quiet_NaN();
+        float panRandomCvSample = panRandomCV.get()    ? sampleCvOrRamp(panRandomCV,    prevPanRandomCv, i) : std::numeric_limits<float>::quiet_NaN();
+        float gateCvSample       = gateCV.get()         ? sampleCvOrRamp(gateCV,         prevGateCv,      i) : std::numeric_limits<float>::quiet_NaN();
 
         // Apply CV with relative/absolute mode
         float density = baseDensity;
@@ -306,6 +321,30 @@ void GranulatorModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
         float gate = std::isfinite(gateCvSample) ? juce::jlimit(0.0f, 1.0f, normalizeCV(gateCvSample)) : baseGate;
         
+        // Calculate spread with CV modulation
+        float spread = baseSpread;
+        if (std::isfinite(spreadCvSample))
+        {
+            const float cv01 = normalizeCV(spreadCvSample);
+            spread = juce::jlimit(0.0f, 1.0f, cv01); // CV directly maps to spread (0-1)
+        }
+        
+        // Calculate pitchRandom with CV modulation
+        float pitchRandom = basePitchRandom;
+        if (std::isfinite(pitchRandomCvSample))
+        {
+            const float cv01 = normalizeCV(pitchRandomCvSample);
+            pitchRandom = juce::jlimit(0.0f, 12.0f, cv01 * 12.0f); // CV maps to 0-12 semitones
+        }
+        
+        // Calculate panRandom with CV modulation
+        float panRandom = basePanRandom;
+        if (std::isfinite(panRandomCvSample))
+        {
+            const float cv01 = normalizeCV(panRandomCvSample);
+            panRandom = juce::jlimit(0.0f, 1.0f, cv01); // CV directly maps to panRandom (0-1)
+        }
+        
         // Calculate mix with CV modulation
         float mixCvSample = mixCV.get() ? sampleCvOrRamp(mixCV, prevMixCv, i) : std::numeric_limits<float>::quiet_NaN();
         float currentMix = baseMix;
@@ -343,8 +382,8 @@ void GranulatorModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                 for (int j = 0; j < (int)grainPool.size(); ++j) {
                     if (!grainPool[j].isActive) {
                         launchGrain(j, currentDensity, currentSize, currentPosition, 
-                                    spreadParam->load(), currentPitch, 
-                                    pitchRandomParam->load(), panRandomParam->load());
+                                    spread, currentPitch, 
+                                    pitchRandom, panRandom);
                         break;
                     }
                 }
@@ -440,15 +479,39 @@ void GranulatorModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     }
 
     // Update previous block CV anchors for de-stepping
-    if (densityCV.get())  prevDensityCv  = densityCV[numSamples - 1];
-    if (sizeCV.get())     prevSizeCv     = sizeCV[numSamples - 1];
-    if (posCV.get())      prevPositionCv = posCV[numSamples - 1];
-    if (pitchCV.get())    prevPitchCv    = pitchCV[numSamples - 1];
-    if (gateCV.get())     prevGateCv     = gateCV[numSamples - 1];
-    if (mixCV.get())      prevMixCv      = mixCV[numSamples - 1];
+    if (densityCV.get())      prevDensityCv      = densityCV[numSamples - 1];
+    if (sizeCV.get())         prevSizeCv         = sizeCV[numSamples - 1];
+    if (posCV.get())          prevPositionCv     = posCV[numSamples - 1];
+    if (spreadCV.get())       prevSpreadCv       = spreadCV[numSamples - 1];
+    if (pitchCV.get())        prevPitchCv        = pitchCV[numSamples - 1];
+    if (pitchRandomCV.get())  prevPitchRandomCv  = pitchRandomCV[numSamples - 1];
+    if (panRandomCV.get())    prevPanRandomCv    = panRandomCV[numSamples - 1];
+    if (gateCV.get())         prevGateCv         = gateCV[numSamples - 1];
+    if (mixCV.get())          prevMixCv           = mixCV[numSamples - 1];
     
-    // Update live parameter value for telemetry
+    // Update live parameter values for telemetry
     if (numSamples > 0) {
+        float finalSpread = baseSpread;
+        if (spreadCV.get() != nullptr) {
+            const float cv = juce::jlimit(0.0f, 1.0f, normalizeCV(spreadCV[numSamples - 1]));
+            finalSpread = cv;
+        }
+        setLiveParamValue("spread_live", finalSpread);
+        
+        float finalPitchRandom = basePitchRandom;
+        if (pitchRandomCV.get() != nullptr) {
+            const float cv = juce::jlimit(0.0f, 1.0f, normalizeCV(pitchRandomCV[numSamples - 1]));
+            finalPitchRandom = cv * 12.0f;
+        }
+        setLiveParamValue("pitchRandom_live", finalPitchRandom);
+        
+        float finalPanRandom = basePanRandom;
+        if (panRandomCV.get() != nullptr) {
+            const float cv = juce::jlimit(0.0f, 1.0f, normalizeCV(panRandomCV[numSamples - 1]));
+            finalPanRandom = cv;
+        }
+        setLiveParamValue("panRandom_live", finalPanRandom);
+        
         float finalMix = baseMix;
         if (mixCV.get() != nullptr) {
             const float cv = juce::jlimit(0.0f, 1.0f, normalizeCV(mixCV[numSamples - 1]));
@@ -723,8 +786,8 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ImGui::SameLine();
     HelpMarker("Relative: CV adds offset to slider (±0.5). Absolute: CV sets position directly (0-1).");
 
-    drawSlider("Spread", paramIdSpread, "", 0.0f, 1.0f, "%.2f");
-    drawSlider("Pitch", paramIdPitch, paramIdPitchMod, -24.0f, 24.0f, "%.1f st", 0, 6); // Channel 6 = Pitch Mod
+    drawSlider("Spread", paramIdSpread, paramIdSpreadMod, 0.0f, 1.0f, "%.2f", 0, 6); // Channel 6 = Spread Mod
+    drawSlider("Pitch", paramIdPitch, paramIdPitchMod, -24.0f, 24.0f, "%.1f st", 0, 7); // Channel 7 = Pitch Mod
     bool relPitch = relativePitchModParam && relativePitchModParam->load() > 0.5f;
     if (ImGui::Checkbox("Relative Pitch Mod", &relPitch))
     {
@@ -735,10 +798,10 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
     ImGui::SameLine();
     HelpMarker("Relative: CV adds offset to slider (±12 st). Absolute: CV sets pitch directly (-24 to +24 st).");
 
-    drawSlider("Pitch Rand", paramIdPitchRandom, "", 0.0f, 12.0f, "%.1f st");
-    drawSlider("Pan Rand", paramIdPanRandom, "", 0.0f, 1.0f, "%.2f");
-    drawSlider("Gate", paramIdGate, paramIdGateMod, 0.0f, 1.0f, "%.2f", 0, 7); // Channel 7 = Gate Mod
-    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f", 0, 8); // Channel 8 = Mix Mod
+    drawSlider("Pitch Rand", paramIdPitchRandom, paramIdPitchRandomMod, 0.0f, 12.0f, "%.1f st", 0, 8); // Channel 8 = Pitch Rand Mod
+    drawSlider("Pan Rand", paramIdPanRandom, paramIdPanRandomMod, 0.0f, 1.0f, "%.2f", 0, 9); // Channel 9 = Pan Rand Mod
+    drawSlider("Gate", paramIdGate, paramIdGateMod, 0.0f, 1.0f, "%.2f", 0, 10); // Channel 10 = Gate Mod
+    drawSlider("Mix", paramIdMix, paramIdMixMod, 0.0f, 1.0f, "%.2f", 0, 11); // Channel 11 = Mix Mod
     ImGui::SameLine();
     HelpMarker("Wet/dry balance (0=dry, 1=wet)");
 
@@ -748,11 +811,12 @@ void GranulatorModuleProcessor::drawParametersInNode(float itemWidth, const std:
 
 void GranulatorModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
 {
-    // Only draw audio and trigger pins - modulation pins (channels 3-8) are now inline
+    // Only draw audio and trigger pins - modulation pins (channels 3-11) are now inline
     helpers.drawParallelPins("In L", 0, "Out L", 0);
     helpers.drawParallelPins("In R", 1, "Out R", 1);
     helpers.drawParallelPins("Trigger In", 2, nullptr, -1);
-    // Density Mod (ch 3), Size Mod (ch 4), Position Mod (ch 5), Pitch Mod (ch 6), Gate Mod (ch 7), Mix Mod (ch 8) are drawn inline in drawParametersInNode
+    // Density Mod (ch 3), Size Mod (ch 4), Position Mod (ch 5), Spread Mod (ch 6), Pitch Mod (ch 7), 
+    // Pitch Rand Mod (ch 8), Pan Rand Mod (ch 9), Gate Mod (ch 10), Mix Mod (ch 11) are drawn inline in drawParametersInNode
 }
 #endif
 
@@ -764,14 +828,17 @@ std::vector<DynamicPinInfo> GranulatorModuleProcessor::getDynamicInputPins() con
     pins.push_back({"In L", 0, PinDataType::Audio});
     pins.push_back({"In R", 1, PinDataType::Audio});
     
-    // Modulation/trigger inputs (channels 2-7)
+    // Modulation/trigger inputs (channels 2-11)
     pins.push_back({"Trigger In", 2, PinDataType::Gate});
     pins.push_back({"Density Mod", 3, PinDataType::CV});
     pins.push_back({"Size Mod", 4, PinDataType::CV});
     pins.push_back({"Position Mod", 5, PinDataType::CV});
-    pins.push_back({"Pitch Mod", 6, PinDataType::CV});
-    pins.push_back({"Gate Mod", 7, PinDataType::CV});
-    pins.push_back({"Mix Mod", 8, PinDataType::CV});
+    pins.push_back({"Spread Mod", 6, PinDataType::CV});
+    pins.push_back({"Pitch Mod", 7, PinDataType::CV});
+    pins.push_back({"Pitch Rand Mod", 8, PinDataType::CV});
+    pins.push_back({"Pan Rand Mod", 9, PinDataType::CV});
+    pins.push_back({"Gate Mod", 10, PinDataType::CV});
+    pins.push_back({"Mix Mod", 11, PinDataType::CV});
     
     return pins;
 }
@@ -790,13 +857,16 @@ std::vector<DynamicPinInfo> GranulatorModuleProcessor::getDynamicOutputPins() co
 bool GranulatorModuleProcessor::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const
 {
     outBusIndex = 0; // All modulation is on the single input bus.
-    if (paramId == paramIdTriggerIn)    { outChannelIndexInBus = 2; return true; }
-    if (paramId == paramIdDensityMod)   { outChannelIndexInBus = 3; return true; }
-    if (paramId == paramIdSizeMod)      { outChannelIndexInBus = 4; return true; }
-    if (paramId == paramIdPositionMod)  { outChannelIndexInBus = 5; return true; }
-    if (paramId == paramIdPitchMod)     { outChannelIndexInBus = 6; return true; }
-    if (paramId == paramIdGateMod)      { outChannelIndexInBus = 7; return true; }
-    if (paramId == paramIdMixMod)       { outChannelIndexInBus = 8; return true; }
+    if (paramId == paramIdTriggerIn)      { outChannelIndexInBus = 2; return true; }
+    if (paramId == paramIdDensityMod)     { outChannelIndexInBus = 3; return true; }
+    if (paramId == paramIdSizeMod)        { outChannelIndexInBus = 4; return true; }
+    if (paramId == paramIdPositionMod)    { outChannelIndexInBus = 5; return true; }
+    if (paramId == paramIdSpreadMod)      { outChannelIndexInBus = 6; return true; }
+    if (paramId == paramIdPitchMod)       { outChannelIndexInBus = 7; return true; }
+    if (paramId == paramIdPitchRandomMod) { outChannelIndexInBus = 8; return true; }
+    if (paramId == paramIdPanRandomMod)   { outChannelIndexInBus = 9; return true; }
+    if (paramId == paramIdGateMod)        { outChannelIndexInBus = 10; return true; }
+    if (paramId == paramIdMixMod)         { outChannelIndexInBus = 11; return true; }
     return false;
 }
 
@@ -809,9 +879,12 @@ juce::String GranulatorModuleProcessor::getAudioInputLabel(int channel) const
         case 3: return "Density Mod";
         case 4: return "Size Mod";
         case 5: return "Position Mod";
-        case 6: return "Pitch Mod";
-        case 7: return "Gate Mod";
-        case 8: return "Mix Mod";
+        case 6: return "Spread Mod";
+        case 7: return "Pitch Mod";
+        case 8: return "Pitch Rand Mod";
+        case 9: return "Pan Rand Mod";
+        case 10: return "Gate Mod";
+        case 11: return "Mix Mod";
         default: return {};
     }
 }

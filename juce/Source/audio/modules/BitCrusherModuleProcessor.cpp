@@ -1087,6 +1087,12 @@ void BitCrusherModuleProcessor::drawParametersInNode(
     {
         ImGui::BeginDisabled();
     }
+    // Draw inline pin for Mix Mod (channel 4)
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        if (pinHelpers->drawInlineInputPin(4)) // Channel 4 = Mix Mod
+            ImGui::SameLine();
+    }
     if (ImGui::SliderFloat("Mix", &mix, 0.0f, 1.0f, "%.2f"))
     {
         if (!isMixModulated)

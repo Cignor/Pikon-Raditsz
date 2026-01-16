@@ -2640,6 +2640,51 @@ void ImGuiNodeEditorComponent::renderImGui()
                 m_helpManager.setActiveTab(0); // Open to Shortcuts tab
             }
 
+            // === DEBUG ZOOM TEST ===
+#if defined(IMNODES_ZOOM_ENABLED)
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Debug Zoom"))
+            {
+                const float currentZoom = ImNodes::EditorContextGetZoom();
+                ImGui::Text("Current Zoom: %.3f", currentZoom);
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Zoom In (1.5x)"))
+                {
+                    ImNodes::EditorContextSetZoom(
+                        1.5f, ImVec2((float)getWidth() / 2, (float)getHeight() / 2));
+                    juce::Logger::writeToLog("[ZoomTest] Set zoom to 1.5x centered");
+                }
+                if (ImGui::MenuItem("Zoom Out (0.5x)"))
+                {
+                    ImNodes::EditorContextSetZoom(
+                        0.5f, ImVec2((float)getWidth() / 2, (float)getHeight() / 2));
+                    juce::Logger::writeToLog("[ZoomTest] Set zoom to 0.5x centered");
+                }
+                if (ImGui::MenuItem("Reset Zoom (1.0x)"))
+                {
+                    ImNodes::EditorContextSetZoom(
+                        1.0f, ImVec2((float)getWidth() / 2, (float)getHeight() / 2));
+                    juce::Logger::writeToLog("[ZoomTest] Reset zoom to 1.0x");
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Zoom 2.0x"))
+                {
+                    ImNodes::EditorContextSetZoom(
+                        2.0f, ImVec2((float)getWidth() / 2, (float)getHeight() / 2));
+                    juce::Logger::writeToLog("[ZoomTest] Set zoom to 2.0x centered");
+                }
+                if (ImGui::MenuItem("Zoom 0.25x"))
+                {
+                    ImNodes::EditorContextSetZoom(
+                        0.25f, ImVec2((float)getWidth() / 2, (float)getHeight() / 2));
+                    juce::Logger::writeToLog("[ZoomTest] Set zoom to 0.25x centered");
+                }
+                ImGui::EndMenu();
+            }
+#endif
+            // === END DEBUG ZOOM TEST ===
+
             ImGui::EndMenu();
         }
 

@@ -23,7 +23,10 @@ public:
     static constexpr auto paramIdDensityMod   = "density_mod";
     static constexpr auto paramIdSizeMod      = "size_mod";
     static constexpr auto paramIdPositionMod  = "position_mod";
+    static constexpr auto paramIdSpreadMod    = "spread_mod";
     static constexpr auto paramIdPitchMod     = "pitch_mod";
+    static constexpr auto paramIdPitchRandomMod = "pitchRandom_mod";
+    static constexpr auto paramIdPanRandomMod = "panRandom_mod";
     static constexpr auto paramIdGateMod      = "gate_mod";
     static constexpr auto paramIdMixMod       = "mix_mod";
 
@@ -102,12 +105,15 @@ private:
     juce::SmoothedValue<float> smoothedDensity, smoothedSize, smoothedPosition, smoothedPitch, smoothedGate, smoothedMix;
 
     // --- CV De-stepping State (for modules that are block-constant) ---
-    float prevDensityCv { std::numeric_limits<float>::quiet_NaN() };
-    float prevSizeCv    { std::numeric_limits<float>::quiet_NaN() };
-    float prevPositionCv{ std::numeric_limits<float>::quiet_NaN() };
-    float prevPitchCv   { std::numeric_limits<float>::quiet_NaN() };
-    float prevGateCv    { std::numeric_limits<float>::quiet_NaN() };
-    float prevMixCv     { std::numeric_limits<float>::quiet_NaN() };
+    float prevDensityCv     { std::numeric_limits<float>::quiet_NaN() };
+    float prevSizeCv        { std::numeric_limits<float>::quiet_NaN() };
+    float prevPositionCv    { std::numeric_limits<float>::quiet_NaN() };
+    float prevSpreadCv      { std::numeric_limits<float>::quiet_NaN() };
+    float prevPitchCv       { std::numeric_limits<float>::quiet_NaN() };
+    float prevPitchRandomCv { std::numeric_limits<float>::quiet_NaN() };
+    float prevPanRandomCv   { std::numeric_limits<float>::quiet_NaN() };
+    float prevGateCv        { std::numeric_limits<float>::quiet_NaN() };
+    float prevMixCv         { std::numeric_limits<float>::quiet_NaN() };
 
     // --- Visualization Data (thread-safe, updated from audio thread) ---
     struct VizData

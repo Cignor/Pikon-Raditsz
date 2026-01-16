@@ -286,6 +286,18 @@ void TrackMixerModuleProcessor::drawParametersInNode(
             getLiveParamValueFor(paramIdNumTracksMod, "numTracks_live", (float)displayedTracks));
     const int maxTracksBound = numTracksMaxParam->get();
 
+    // Inline pin for Num Tracks Mod
+    if (pinHelpers && pinHelpers->drawInlineInputPin)
+    {
+        int busIdx, chanInBus;
+        if (getParamRouting(paramIdNumTracksMod, busIdx, chanInBus))
+        {
+            int channel = getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus);
+            if (pinHelpers->drawInlineInputPin(channel))
+                ImGui::SameLine();
+        }
+    }
+
     if (isCountModulated)
         ImGui::BeginDisabled();
 
@@ -487,8 +499,23 @@ void TrackMixerModuleProcessor::drawParametersInNode(
             // If modulated, show the live computed value
             gainVal = getLiveParamValueFor(
                 "track_gain_" + trackNumStr, "track_gain_" + trackNumStr + "_live", gainVal);
-            ImGui::BeginDisabled();
         }
+
+        // Inline pin for Gain Mod
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            int busIdx, chanInBus;
+            const juce::String gainModId = paramIdGainModPrefix + trackNumStr;
+            if (getParamRouting(gainModId, busIdx, chanInBus))
+            {
+                int channel = getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus);
+                if (pinHelpers->drawInlineInputPin(channel))
+                    ImGui::SameLine();
+            }
+        }
+
+        if (isGainModulated)
+            ImGui::BeginDisabled();
 
         ImGui::PushItemWidth(itemWidth * 0.5f - 20); // Adjust width for mod indicator
         if (ImGui::SliderFloat(("G" + trackNumStr).toRawUTF8(), &gainVal, -60.0f, 6.0f, "%.1f dB"))
@@ -511,9 +538,7 @@ void TrackMixerModuleProcessor::drawParametersInNode(
             ImGui::TextUnformatted("(m)");
         }
 
-        ImGui::SameLine();
-
-        // --- Pan Slider for Track t+1 ---
+        // --- Pan Slider for Track t+1 (on next line) ---
         const bool isPanModulated = isParamModulated("track_pan_" + trackNumStr);
         float      panVal = panParamPtr->get(); // Get base value
         if (isPanModulated)
@@ -521,10 +546,25 @@ void TrackMixerModuleProcessor::drawParametersInNode(
             // If modulated, show the live computed value
             panVal = getLiveParamValueFor(
                 "track_pan_" + trackNumStr, "track_pan_" + trackNumStr + "_live", panVal);
-            ImGui::BeginDisabled();
         }
 
-        ImGui::PushItemWidth(itemWidth * 0.5f - 20); // Adjust width for mod indicator
+        // Inline pin for Pan Mod
+        if (pinHelpers && pinHelpers->drawInlineInputPin)
+        {
+            int busIdx, chanInBus;
+            const juce::String panModId = paramIdPanModPrefix + trackNumStr;
+            if (getParamRouting(panModId, busIdx, chanInBus))
+            {
+                int channel = getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus);
+                if (pinHelpers->drawInlineInputPin(channel))
+                    ImGui::SameLine();
+            }
+        }
+
+        if (isPanModulated)
+            ImGui::BeginDisabled();
+
+        ImGui::PushItemWidth(itemWidth); // Full width for Pan slider
         if (ImGui::SliderFloat(("P" + trackNumStr).toRawUTF8(), &panVal, -1.0f, 1.0f, "%.2f"))
         {
             if (!isPanModulated)
@@ -543,6 +583,12 @@ void TrackMixerModuleProcessor::drawParametersInNode(
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::TextUnformatted("(m)");
+        }
+
+        // Audio input pin for this track (inline, below Pan)
+        if (pinHelpers && pinHelpers->drawAudioInputPin)
+        {
+            pinHelpers->drawAudioInputPin(("Audio " + trackNumStr).toRawUTF8(), t);
         }
 
         ImGui::PopID();
@@ -579,44 +625,11 @@ void TrackMixerModuleProcessor::drawIoPins(const NodePinHelpers& helpers)
     // Use the last value computed on audio thread if available
     const int activeTracks = juce::jlimit(2, MAX_TRACKS, lastActiveTracks.load());
 
-    // --- Draw Output Pins First ---
+    // --- Draw Output Pins Only ---
     helpers.drawParallelPins(nullptr, -1, "Out L", 0);
     helpers.drawParallelPins(nullptr, -1, "Out R", 1);
 
-    // --- Draw Input Pins ---
-    // Replace generic bus pins with human-legible per-channel pins
-    for (int t = 0; t < activeTracks; ++t)
-        helpers.drawParallelPins(("Audio " + juce::String(t + 1)).toRawUTF8(), t, nullptr, -1);
-
-    // --- Draw Modulation Pins ---
-    int busIdx, chanInBus;
-    if (getParamRouting(paramIdNumTracksMod, busIdx, chanInBus))
-        helpers.drawParallelPins(
-            "Num Tracks Mod",
-            getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus),
-            nullptr,
-            -1);
-
-    // Draw per-track modulation pins
-    for (int t = 1; t <= activeTracks; ++t)
-    {
-        const juce::String trackNumStr = juce::String(t);
-        const juce::String gainModId = paramIdGainModPrefix + trackNumStr;
-        const juce::String panModId = paramIdPanModPrefix + trackNumStr;
-
-        if (getParamRouting(gainModId, busIdx, chanInBus))
-            helpers.drawParallelPins(
-                ("Gain " + trackNumStr + " Mod").toRawUTF8(),
-                getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus),
-                nullptr,
-                -1);
-        if (getParamRouting(panModId, busIdx, chanInBus))
-            helpers.drawParallelPins(
-                ("Pan " + trackNumStr + " Mod").toRawUTF8(),
-                getChannelIndexInProcessBlockBuffer(true, busIdx, chanInBus),
-                nullptr,
-                -1);
-    }
+    // --- Audio Input Pins and Modulation Pins are now inline, not drawn here ---
 }
 
 std::vector<DynamicPinInfo> TrackMixerModuleProcessor::getDynamicInputPins() const

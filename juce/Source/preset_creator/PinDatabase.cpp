@@ -614,9 +614,12 @@ void populatePinDatabase()
          AudioPin("Density Mod", 3, PinDataType::CV),
          AudioPin("Size Mod", 4, PinDataType::CV),
          AudioPin("Position Mod", 5, PinDataType::CV),
-         AudioPin("Pitch Mod", 6, PinDataType::CV),
-         AudioPin("Gate Mod", 7, PinDataType::CV),
-         AudioPin("Mix Mod", 8, PinDataType::CV)},
+         AudioPin("Spread Mod", 6, PinDataType::CV),
+         AudioPin("Pitch Mod", 7, PinDataType::CV),
+         AudioPin("Pitch Rand Mod", 8, PinDataType::CV),
+         AudioPin("Pan Rand Mod", 9, PinDataType::CV),
+         AudioPin("Gate Mod", 10, PinDataType::CV),
+         AudioPin("Mix Mod", 11, PinDataType::CV)},
         {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
         {ModPin("Mix", "mix_mod", PinDataType::CV)});
     db["mixer"] = ModulePinInfo(
