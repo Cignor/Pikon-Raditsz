@@ -10,20 +10,22 @@
 
 #if defined(PRESET_CREATOR_UI)
 #include <imgui.h>
+#include <imgui_internal.h> // For WorkRect workaround to fix widget bleeding in nodes
 #include "../../preset_creator/ImGuiNodeEditorComponent.h"
 #include "../../preset_creator/theme/ThemeManager.h"
 #include <juce_opengl/juce_opengl.h>
 #include <map>
+#include <array>
 #include <unordered_map>
 #endif
 
 void PoseEstimatorModule::loadModel(int modelIndex)
 {
     // Find assets next to executable (like ObjectDetectorModule)
-    auto exeFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
-    auto appDir = exeFile.getParentDirectory();
+    auto       exeFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
+    auto       appDir = exeFile.getParentDirectory();
     juce::File assetsDir = appDir.getChildFile("assets");
-    
+
     auto poseModelsDir = assetsDir.getChildFile("openpose_models").getChildFile("pose");
 
     juce::String protoPath, modelPath;
@@ -31,42 +33,47 @@ void PoseEstimatorModule::loadModel(int modelIndex)
 
     switch (modelIndex)
     {
-        case 0: // BODY_25
-            modelName = "BODY_25";
-            protoPath = poseModelsDir.getChildFile("body_25/pose_deploy.prototxt").getFullPathName();
-            modelPath = poseModelsDir.getChildFile("body_25/pose_iter_584000.caffemodel").getFullPathName();
-            break;
-        case 1: // COCO
-            modelName = "COCO";
-            protoPath = poseModelsDir.getChildFile("coco/pose_deploy_linevec.prototxt").getFullPathName();
-            modelPath = poseModelsDir.getChildFile("coco/pose_iter_440000.caffemodel").getFullPathName();
-            break;
-        case 2: // MPI
-            modelName = "MPI";
-            protoPath = poseModelsDir.getChildFile("mpi/pose_deploy_linevec.prototxt").getFullPathName();
-            modelPath = poseModelsDir.getChildFile("mpi/pose_iter_160000.caffemodel").getFullPathName();
-            break;
-        case 3: // MPI (Fast)
-        default:
-            modelName = "MPI (Fast)";
-            protoPath = poseModelsDir.getChildFile("mpi/pose_deploy_linevec_faster_4_stages.prototxt").getFullPathName();
-            modelPath = poseModelsDir.getChildFile("mpi/pose_iter_160000.caffemodel").getFullPathName();
-            break;
+    case 0: // BODY_25
+        modelName = "BODY_25";
+        protoPath = poseModelsDir.getChildFile("body_25/pose_deploy.prototxt").getFullPathName();
+        modelPath =
+            poseModelsDir.getChildFile("body_25/pose_iter_584000.caffemodel").getFullPathName();
+        break;
+    case 1: // COCO
+        modelName = "COCO";
+        protoPath =
+            poseModelsDir.getChildFile("coco/pose_deploy_linevec.prototxt").getFullPathName();
+        modelPath =
+            poseModelsDir.getChildFile("coco/pose_iter_440000.caffemodel").getFullPathName();
+        break;
+    case 2: // MPI
+        modelName = "MPI";
+        protoPath =
+            poseModelsDir.getChildFile("mpi/pose_deploy_linevec.prototxt").getFullPathName();
+        modelPath = poseModelsDir.getChildFile("mpi/pose_iter_160000.caffemodel").getFullPathName();
+        break;
+    case 3: // MPI (Fast)
+    default:
+        modelName = "MPI (Fast)";
+        protoPath = poseModelsDir.getChildFile("mpi/pose_deploy_linevec_faster_4_stages.prototxt")
+                        .getFullPathName();
+        modelPath = poseModelsDir.getChildFile("mpi/pose_iter_160000.caffemodel").getFullPathName();
+        break;
     }
 
     juce::Logger::writeToLog("[PoseEstimator] Attempting to load " + modelName + " model...");
     juce::Logger::writeToLog("  - Prototxt: " + protoPath);
     juce::Logger::writeToLog("  - Caffemodel: " + modelPath);
-    
+
     juce::File protoFile(protoPath);
     juce::File modelFile(modelPath);
-    
+
     if (protoFile.existsAsFile() && modelFile.existsAsFile())
     {
         try
         {
             net = cv::dnn::readNetFromCaffe(protoPath.toStdString(), modelPath.toStdString());
-            
+
             // Set backend immediately after loading model (like ObjectDetectorModule)
 #if WITH_CUDA_SUPPORT
             bool useGpu = useGpuParam ? useGpuParam->get() : false;
@@ -85,23 +92,29 @@ void PoseEstimatorModule::loadModel(int modelIndex)
 #else
             net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
             net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-            juce::Logger::writeToLog("[PoseEstimator] Model loaded with CPU backend (CUDA not compiled)");
+            juce::Logger::writeToLog(
+                "[PoseEstimator] Model loaded with CPU backend (CUDA not compiled)");
 #endif
-            
+
             modelLoaded = true;
             juce::Logger::writeToLog("[PoseEstimator] SUCCESS: Loaded model: " + modelName);
         }
         catch (const cv::Exception& e)
         {
-            juce::Logger::writeToLog("[PoseEstimator] FAILED: OpenCV exception while loading model: " + juce::String(e.what()));
+            juce::Logger::writeToLog(
+                "[PoseEstimator] FAILED: OpenCV exception while loading model: " +
+                juce::String(e.what()));
             modelLoaded = false;
         }
     }
     else
     {
-        juce::Logger::writeToLog("[PoseEstimator] FAILED: Could not find model files at the specified paths.");
-        if (!protoFile.existsAsFile()) juce::Logger::writeToLog("  - Missing file: " + protoPath);
-        if (!modelFile.existsAsFile()) juce::Logger::writeToLog("  - Missing file: " + modelPath);
+        juce::Logger::writeToLog(
+            "[PoseEstimator] FAILED: Could not find model files at the specified paths.");
+        if (!protoFile.existsAsFile())
+            juce::Logger::writeToLog("  - Missing file: " + protoPath);
+        if (!modelFile.existsAsFile())
+            juce::Logger::writeToLog("  - Missing file: " + modelPath);
         modelLoaded = false;
     }
 }
@@ -177,7 +190,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PoseEstimatorModule::createP
 PoseEstimatorModule::PoseEstimatorModule()
     : ModuleProcessor(
           BusesProperties()
-              .withInput("Input", juce::AudioChannelSet::discreteChannels(2), true) // Source ID (ch 0) + Confidence Mod (ch 1)
+              .withInput(
+                  "Input",
+                  juce::AudioChannelSet::discreteChannels(2),
+                  true) // Source ID (ch 0) + Confidence Mod (ch 1)
               .withOutput(
                   "CV Out",
                   juce::AudioChannelSet::discreteChannels(34),
@@ -198,18 +214,16 @@ PoseEstimatorModule::PoseEstimatorModule()
 
     // Initialize FIFO buffer
     fifoBuffer.resize(16);
-    
+
     // Defer initial model load to the thread (default to current selection or MPI Fast)
     requestedModelIndex = modelChoiceParam ? modelChoiceParam->getIndex() : 3;
-    
+
     // Initialize confidence threshold
-    currentConfidenceThreshold.store(confidenceThresholdParam ? confidenceThresholdParam->load() : 0.1f);
+    currentConfidenceThreshold.store(
+        confidenceThresholdParam ? confidenceThresholdParam->load() : 0.1f);
 }
 
-PoseEstimatorModule::~PoseEstimatorModule()
-{
-    stopThread(5000);
-}
+PoseEstimatorModule::~PoseEstimatorModule() { stopThread(5000); }
 
 void PoseEstimatorModule::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
@@ -227,10 +241,10 @@ void PoseEstimatorModule::releaseResources()
 void PoseEstimatorModule::run()
 {
 #if WITH_CUDA_SUPPORT
-    bool lastGpuState = false; // Track GPU state to minimize backend switches
+    bool lastGpuState = false;     // Track GPU state to minimize backend switches
     bool loggedGpuWarning = false; // Only warn once if no GPU available
 #endif
-    
+
     while (!threadShouldExit())
     {
         // Handle deferred model reload requests from UI
@@ -239,17 +253,17 @@ void PoseEstimatorModule::run()
         {
             loadModel(toLoad);
         }
-        
+
         // Load model on first run if not loaded yet
         if (!modelLoaded)
         {
             int defaultModel = modelChoiceParam ? modelChoiceParam->getIndex() : 3;
             loadModel(defaultModel);
         }
-        
+
         juce::uint32 sourceId = currentSourceId.load();
-        cv::Mat prefetchedFrame;
-        
+        cv::Mat      prefetchedFrame;
+
         if (sourceId == 0)
         {
             if (cachedResolvedSourceId != 0)
@@ -274,7 +288,7 @@ void PoseEstimatorModule::run()
                             }
                         }
                     }
-                    
+
                     if (myLogicalId != 0)
                     {
                         for (const auto& conn : *snapshot)
@@ -288,15 +302,17 @@ void PoseEstimatorModule::run()
                         }
                     }
                 }
-                
+
                 if (sourceId == 0)
                 {
                     for (const auto& info : parentSynth->getModulesInfo())
                     {
                         juce::String moduleType = info.second.toLowerCase();
-                        if (moduleType.contains("video") || moduleType.contains("webcam") || moduleType == "video_file_loader")
+                        if (moduleType.contains("video") || moduleType.contains("webcam") ||
+                            moduleType == "video_file_loader")
                         {
-                            cv::Mat testFrame = VideoFrameManager::getInstance().getFrame(info.first);
+                            cv::Mat testFrame =
+                                VideoFrameManager::getInstance().getFrame(info.first);
                             if (!testFrame.empty())
                             {
                                 sourceId = info.first;
@@ -314,11 +330,11 @@ void PoseEstimatorModule::run()
             if (cachedResolvedSourceId != 0 && cachedResolvedSourceId != sourceId)
                 cachedResolvedSourceId = 0;
         }
-        
+
         cv::Mat frame = prefetchedFrame.empty()
-            ? VideoFrameManager::getInstance().getFrame(sourceId)
-            : prefetchedFrame;
-        
+                            ? VideoFrameManager::getInstance().getFrame(sourceId)
+                            : prefetchedFrame;
+
         if (!frame.empty())
         {
             const juce::ScopedLock lk(frameLock);
@@ -330,11 +346,11 @@ void PoseEstimatorModule::run()
             if (!lastFrameBgr.empty())
                 frame = lastFrameBgr.clone();
         }
-        
+
         if (!frame.empty())
         {
             bool useGpu = false;
-            
+
 #if WITH_CUDA_SUPPORT
             useGpu = useGpuParam ? useGpuParam->get() : false;
             if (useGpu && !CudaDeviceCountCache::isAvailable())
@@ -342,11 +358,13 @@ void PoseEstimatorModule::run()
                 useGpu = false;
                 if (!loggedGpuWarning)
                 {
-                    juce::Logger::writeToLog("[PoseEstimator] WARNING: GPU requested but no CUDA device found. Using CPU.");
+                    juce::Logger::writeToLog(
+                        "[PoseEstimator] WARNING: GPU requested but no CUDA device found. Using "
+                        "CPU.");
                     loggedGpuWarning = true;
                 }
             }
-            
+
             // Set DNN backend only when state changes (expensive operation)
             if (useGpu != lastGpuState)
             {
@@ -365,23 +383,23 @@ void PoseEstimatorModule::run()
                 lastGpuState = useGpu;
             }
 #endif
-            
+
             // Check for exit before expensive operations
             if (threadShouldExit())
                 break;
-            
+
             // Prepare input blob
-            int q = qualityParam ? qualityParam->getIndex() : 1;
+            int      q = qualityParam ? qualityParam->getIndex() : 1;
             cv::Size blobSize = (q == 0) ? cv::Size(224, 224) : cv::Size(368, 368);
-            cv::Mat inputBlob = cv::dnn::blobFromImage(
+            cv::Mat  inputBlob = cv::dnn::blobFromImage(
                 frame, 1.0 / 255.0, blobSize, cv::Scalar(0, 0, 0), false, false);
-            
+
             // Check for exit again before CUDA operation
             if (threadShouldExit())
                 break;
-            
+
             net.setInput(inputBlob);
-            
+
             // Wrap forward() in try-catch to handle CUDA errors gracefully
             cv::Mat netOutput;
             try
@@ -390,7 +408,9 @@ void PoseEstimatorModule::run()
             }
             catch (const cv::Exception& e)
             {
-                juce::Logger::writeToLog("[PoseEstimator] CUDA forward() failed: " + juce::String(e.what()) + " - falling back to CPU");
+                juce::Logger::writeToLog(
+                    "[PoseEstimator] CUDA forward() failed: " + juce::String(e.what()) +
+                    " - falling back to CPU");
                 // Switch to CPU backend and retry once
                 try
                 {
@@ -407,7 +427,8 @@ void PoseEstimatorModule::run()
             }
             catch (...)
             {
-                juce::Logger::writeToLog("[PoseEstimator] Unknown error in net.forward() - skipping frame");
+                juce::Logger::writeToLog(
+                    "[PoseEstimator] Unknown error in net.forward() - skipping frame");
                 wait(50);
                 continue; // Skip this frame
             }
@@ -447,8 +468,8 @@ void PoseEstimatorModule::run()
                         // Check if this keypoint is inside any rectangle of this color zone
                         for (const auto& rect : rects)
                         {
-                            if (posX >= rect.x && posX <= rect.x + rect.width &&
-                                posY >= rect.y && posY <= rect.y + rect.height)
+                            if (posX >= rect.x && posX <= rect.x + rect.width && posY >= rect.y &&
+                                posY <= rect.y + rect.height)
                             {
                                 hit = true;
                                 break; // Found a keypoint in this zone
@@ -541,7 +562,7 @@ void PoseEstimatorModule::run()
                     }
                 }
             }
-            
+
             // Passthrough logic (like ObjectDetectorModule)
             updateGuiFrame(frame);
             if (myLogicalId != 0)
@@ -552,7 +573,7 @@ void PoseEstimatorModule::run()
             wait(50);
             continue;
         }
-        
+
         // Run at ~15 FPS (pose estimation is computationally expensive)
         wait(66);
     }
@@ -735,7 +756,10 @@ std::vector<DynamicPinInfo> PoseEstimatorModule::getDynamicOutputPins() const
     return pins;
 }
 
-bool PoseEstimatorModule::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const
+bool PoseEstimatorModule::getParamRouting(
+    const juce::String& paramId,
+    int&                outBusIndex,
+    int&                outChannelIndexInBus) const
 {
     outBusIndex = 0; // All modulation is on the single input bus
     if (paramId == paramIdConfidenceMod)
@@ -752,29 +776,29 @@ void PoseEstimatorModule::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 
     // ✅ CRITICAL: Read ALL inputs BEFORE clearing buffer (prevents buffer aliasing bug)
     auto inputBuffer = getBusBuffer(buffer, true, 0);
-    
+
     // Read Source ID from input pin (channel 0)
     float sourceIdFloat = 0.0f;
     if (inputBuffer.getNumChannels() > 0 && inputBuffer.getNumSamples() > 0)
     {
         sourceIdFloat = inputBuffer.getSample(0, 0);
     }
-    
+
     // Read Confidence CV modulation (channel 1) if connected
-    const bool isConfidenceModConnected = isParamInputConnected(paramIdConfidenceMod);
+    const bool   isConfidenceModConnected = isParamInputConnected(paramIdConfidenceMod);
     const float* confidenceCV = nullptr;
     if (isConfidenceModConnected && inputBuffer.getNumChannels() > 1)
     {
         confidenceCV = inputBuffer.getReadPointer(1);
     }
-    
+
     // Get base confidence value
     const float baseConfidence = confidenceThresholdParam ? confidenceThresholdParam->load() : 0.1f;
-    
+
     // Process confidence modulation per-sample
     const int numSamples = buffer.getNumSamples();
-    float currentConfidence = baseConfidence;
-    
+    float     currentConfidence = baseConfidence;
+
     if (isConfidenceModConnected && confidenceCV)
     {
         // Use the last sample value (or average if needed)
@@ -782,7 +806,7 @@ void PoseEstimatorModule::processBlock(juce::AudioBuffer<float>& buffer, juce::M
         const float cvValue = confidenceCV[numSamples - 1];
         // CV is 0-1, map directly to confidence range (0.0-1.0)
         currentConfidence = juce::jlimit(0.0f, 1.0f, cvValue);
-        
+
         // Update telemetry for UI
         setLiveParamValue("confidence_live", currentConfidence);
     }
@@ -791,10 +815,10 @@ void PoseEstimatorModule::processBlock(juce::AudioBuffer<float>& buffer, juce::M
         // No modulation, use base value
         currentConfidence = baseConfidence;
     }
-    
+
     // Store modulated confidence for processing thread
     currentConfidenceThreshold.store(currentConfidence);
-    
+
     // Store source ID
     currentSourceId.store((juce::uint32)sourceIdFloat);
 
@@ -952,7 +976,10 @@ void PoseEstimatorModule::drawParametersInNode(
     if (modelChoiceParam)
     {
         int m = modelChoiceParam->getIndex();
-        if (ImGui::Combo("Model", &m, "BODY_25 (25 pts)\0COCO (18 pts)\0MPI (15 pts)\0MPI Fast (15 pts)\0\0"))
+        if (ImGui::Combo(
+                "Model",
+                &m,
+                "BODY_25 (25 pts)\0COCO (18 pts)\0MPI (15 pts)\0MPI Fast (15 pts)\0\0"))
         {
             if (!modelMod)
             {
@@ -1004,11 +1031,12 @@ void PoseEstimatorModule::drawParametersInNode(
         ImGui::EndDisabled();
 
     // Confidence threshold with CV modulation support
-    bool confidenceMod = isParamModulated(paramIdConfidenceMod);
+    bool  confidenceMod = isParamModulated(paramIdConfidenceMod);
     float confidenceFallback = confidenceThresholdParam ? confidenceThresholdParam->load() : 0.1f;
-    float confidence = confidenceMod
-        ? getLiveParamValueFor(paramIdConfidenceMod, "confidence_live", confidenceFallback)
-        : confidenceFallback;
+    float confidence =
+        confidenceMod
+            ? getLiveParamValueFor(paramIdConfidenceMod, "confidence_live", confidenceFallback)
+            : confidenceFallback;
     if (confidenceMod)
         ImGui::BeginDisabled();
     if (ImGui::SliderFloat("Confidence", &confidence, 0.0f, 1.0f, "%.2f"))
@@ -1363,25 +1391,117 @@ void PoseEstimatorModule::drawParametersInNode(
 
 void PoseEstimatorModule::drawIoPins(const NodePinHelpers& helpers)
 {
-    // Inputs: Source ID and Confidence CV modulation (using parallel pins layout)
+    // === WORKAROUND FOR IMNODES WIDGET BLEEDING ===
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float  cursorX = ImGui::GetCursorPosX();
+    const float  nodeWidth = getCustomNodeSize().x > 0 ? getCustomNodeSize().x : 240.0f;
+    const float  nodeRightEdge = cursorX + nodeWidth;
+
+    const float savedWorkRectMaxX = window->WorkRect.Max.x;
+    const float savedContentRegionMaxX = window->ContentRegionRect.Max.x;
+
+    window->WorkRect.Max.x = juce::jmin(savedWorkRectMaxX, nodeRightEdge);
+    window->ContentRegionRect.Max.x = juce::jmin(savedContentRegionMaxX, nodeRightEdge);
+
+    // Input pins
     helpers.drawParallelPins("Source In", 0, nullptr, -1);
     helpers.drawParallelPins("Confidence Mod", 1, nullptr, -1);
 
-    // Outputs: 30 pins (15 keypoints x 2 coordinates)
-    for (int i = 0; i < MPI_NUM_KEYPOINTS; ++i)
+    // Define body part groups for MPI 15-keypoint model
+    struct BodyPartGroup
     {
-        const std::string& name = MPI_KEYPOINT_NAMES[i];
-        juce::String xLabel = juce::String(name) + " X";
-        juce::String yLabel = juce::String(name) + " Y";
-        helpers.drawParallelPins(nullptr, -1, xLabel.toRawUTF8(), i * 2);
-        helpers.drawParallelPins(nullptr, -1, yLabel.toRawUTF8(), i * 2 + 1);
+        const char*      name;
+        std::vector<int> keypointIndices;
+    };
+
+    const BodyPartGroup groups[] = {
+        {"Head & Torso", {0, 1, 14}}, // Head, Neck, Chest
+        {"Right Arm", {2, 3, 4}},     // R Shoulder, R Elbow, R Wrist
+        {"Left Arm", {5, 6, 7}},      // L Shoulder, L Elbow, L Wrist
+        {"Right Leg", {8, 9, 10}},    // R Hip, R Knee, R Ankle
+        {"Left Leg", {11, 12, 13}}    // L Hip, L Knee, L Ankle
+    };
+    constexpr int numGroups = 5;
+
+    static std::map<juce::uint32, std::array<bool, numGroups>> collapseState;
+    juce::uint32                                               nodeId = getLogicalId();
+    if (collapseState.find(nodeId) == collapseState.end())
+        collapseState[nodeId] = {false, true, true, true, true};
+
+    auto& collapsed = collapseState[nodeId];
+
+    for (int g = 0; g < numGroups; ++g)
+    {
+        const auto& group = groups[g];
+
+        bool hasConnectionsInGroup = false;
+        if (helpers.isOutputPinConnected)
+        {
+            for (int kp : group.keypointIndices)
+            {
+                if (helpers.isOutputPinConnected(0, kp * 2) ||
+                    helpers.isOutputPinConnected(0, kp * 2 + 1))
+                {
+                    hasConnectionsInGroup = true;
+                    break;
+                }
+            }
+        }
+
+        ImGui::PushID(g);
+
+        juce::String headerLabel;
+        headerLabel << (collapsed[g] ? "\xE2\x96\xB6 " : "\xE2\x96\xBC ");
+        headerLabel << group.name;
+        if (collapsed[g] && hasConnectionsInGroup)
+            headerLabel << " [\xE2\x97\x8F]";
+
+        if (ImGui::Selectable(headerLabel.toRawUTF8(), false))
+            collapsed[g] = !collapsed[g];
+
+        if (!collapsed[g])
+        {
+            for (int kp : group.keypointIndices)
+            {
+                const std::string& name = MPI_KEYPOINT_NAMES[kp];
+                helpers.drawParallelPins(
+                    nullptr, -1, (juce::String(name) + " X").toRawUTF8(), kp * 2);
+                helpers.drawParallelPins(
+                    nullptr, -1, (juce::String(name) + " Y").toRawUTF8(), kp * 2 + 1);
+            }
+        }
+        else if (helpers.isOutputPinConnected)
+        {
+            for (int kp : group.keypointIndices)
+            {
+                if (helpers.isOutputPinConnected(0, kp * 2))
+                    helpers.drawParallelPins(
+                        nullptr,
+                        -1,
+                        (juce::String(MPI_KEYPOINT_NAMES[kp]) + " X").toRawUTF8(),
+                        kp * 2);
+                if (helpers.isOutputPinConnected(0, kp * 2 + 1))
+                    helpers.drawParallelPins(
+                        nullptr,
+                        -1,
+                        (juce::String(MPI_KEYPOINT_NAMES[kp]) + " Y").toRawUTF8(),
+                        kp * 2 + 1);
+            }
+        }
+        ImGui::PopID();
     }
-    // Zone gates and video outputs
+
+    ImGui::Spacing();
     helpers.drawParallelPins(nullptr, -1, "Red Zone Gate", 30);
     helpers.drawParallelPins(nullptr, -1, "Green Zone Gate", 31);
     helpers.drawParallelPins(nullptr, -1, "Blue Zone Gate", 32);
     helpers.drawParallelPins(nullptr, -1, "Yellow Zone Gate", 33);
-    helpers.drawParallelPins(nullptr, -1, "Video Out", 34); // Bus 1, channel 0
-    helpers.drawParallelPins(nullptr, -1, "Cropped Out", 35); // Bus 2, channel 0
+
+    ImGui::Spacing();
+    helpers.drawParallelPins(nullptr, -1, "Video Out", 34);
+    helpers.drawParallelPins(nullptr, -1, "Cropped Out", 35);
+
+    window->WorkRect.Max.x = savedWorkRectMaxX;
+    window->ContentRegionRect.Max.x = savedContentRegionMaxX;
 }
 #endif

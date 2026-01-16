@@ -52,7 +52,8 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() override { return apvts; }
 
     // Parameter routing for CV modulation
-    bool getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const override;
+    bool getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus)
+        const override;
 
     // Persist extra state (e.g., assets path)
     juce::ValueTree getExtraStateTree() const override;
@@ -84,6 +85,7 @@ public:
         const std::function<bool(const juce::String& paramId)>& isParamModulated,
         const std::function<void()>&                            onModificationEnded) override;
     void drawIoPins(const NodePinHelpers& helpers) override;
+    bool usesCustomPinLayout() const override { return true; }
 
     // Override to specify custom node width based on zoom level (Small/Normal/Large)
     ImVec2 getCustomNodeSize() const override;

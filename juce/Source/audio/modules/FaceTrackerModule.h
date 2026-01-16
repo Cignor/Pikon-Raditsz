@@ -5,9 +5,9 @@
 #include <opencv2/dnn.hpp>
 #include <opencv2/objdetect.hpp>
 #if WITH_CUDA_SUPPORT
-    #include <opencv2/core/cuda.hpp>
-    #include <opencv2/cudaimgproc.hpp>
-    #include <opencv2/cudawarping.hpp>
+#include <opencv2/core/cuda.hpp>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudawarping.hpp>
 #endif
 #include <juce_core/juce_core.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -17,10 +17,10 @@ constexpr int FACE_NUM_KEYPOINTS = 70;
 struct FaceResult
 {
     float keypoints[FACE_NUM_KEYPOINTS][2] = {{0}};
-    float faceCenterX = -1.0f;  // Face center X (absolute screen position)
-    float faceCenterY = -1.0f;  // Face center Y (absolute screen position)
-    int detectedPoints = 0;
-    bool zoneHits[4] = {false, false, false, false};  // Zone hit detection results
+    float faceCenterX = -1.0f; // Face center X (absolute screen position)
+    float faceCenterY = -1.0f; // Face center Y (absolute screen position)
+    int   detectedPoints = 0;
+    bool  zoneHits[4] = {false, false, false, false}; // Zone hit detection results
 };
 
 class FaceTrackerModule : public ModuleProcessor, private juce::Thread
@@ -30,7 +30,7 @@ public:
     ~FaceTrackerModule() override;
 
     const juce::String getName() const override { return "face_tracker"; }
-    juce::Image getLatestFrame();
+    juce::Image        getLatestFrame();
 
     std::vector<DynamicPinInfo> getDynamicOutputPins() const override;
 
@@ -44,10 +44,10 @@ public:
     };
 
     // Helper functions to serialize/deserialize zone rectangles
-    static juce::String serializeZoneRects(const std::vector<ZoneRect>& rects);
+    static juce::String          serializeZoneRects(const std::vector<ZoneRect>& rects);
     static std::vector<ZoneRect> deserializeZoneRects(const juce::String& data);
-    void loadZoneRects(int colorIndex, std::vector<ZoneRect>& rects) const;
-    void saveZoneRects(int colorIndex, const std::vector<ZoneRect>& rects);
+    void                         loadZoneRects(int colorIndex, std::vector<ZoneRect>& rects) const;
+    void                         saveZoneRects(int colorIndex, const std::vector<ZoneRect>& rects);
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -56,10 +56,12 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() override { return apvts; }
 
 #if defined(PRESET_CREATOR_UI)
-    void drawParametersInNode(float itemWidth,
-                              const std::function<bool(const juce::String& paramId)>& isParamModulated,
-                              const std::function<void()>& onModificationEnded) override;
-    void drawIoPins(const NodePinHelpers& helpers) override;
+    void drawParametersInNode(
+        float                                                   itemWidth,
+        const std::function<bool(const juce::String& paramId)>& isParamModulated,
+        const std::function<void()>&                            onModificationEnded) override;
+    void   drawIoPins(const NodePinHelpers& helpers) override;
+    bool   usesCustomPinLayout() const override { return true; }
     ImVec2 getCustomNodeSize() const override;
 #endif
 
@@ -70,31 +72,29 @@ private:
     void loadModel();
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    juce::AudioProcessorValueTreeState apvts;
+    juce::AudioProcessorValueTreeState                         apvts;
 
-    std::atomic<float>* sourceIdParam = nullptr;
-    std::atomic<float>* confidenceThresholdParam = nullptr;
-    std::atomic<float>* zoomLevelParam = nullptr;
+    std::atomic<float>*       sourceIdParam = nullptr;
+    std::atomic<float>*       confidenceThresholdParam = nullptr;
+    std::atomic<float>*       zoomLevelParam = nullptr;
     juce::AudioParameterBool* useGpuParam = nullptr;
 
     cv::CascadeClassifier faceCascade;
-    cv::dnn::Net net;
-    bool modelLoaded = false;
+    cv::dnn::Net          net;
+    bool                  modelLoaded = false;
 
-    std::atomic<juce::uint32> currentSourceId { 0 };
-    juce::uint32 cachedResolvedSourceId { 0 };
+    std::atomic<juce::uint32> currentSourceId{0};
+    juce::uint32              cachedResolvedSourceId{0};
 
-    FaceResult lastResultForAudio;
-    juce::AbstractFifo fifo { 16 };
+    FaceResult              lastResultForAudio;
+    juce::AbstractFifo      fifo{16};
     std::vector<FaceResult> fifoBuffer;
 
-    juce::Image latestFrameForGui;
+    juce::Image           latestFrameForGui;
     juce::CriticalSection imageLock;
 
-    cv::Mat lastFrameBgr;
+    cv::Mat               lastFrameBgr;
     juce::CriticalSection frameLock;
 
-    juce::uint32 storedLogicalId { 0 };
+    juce::uint32 storedLogicalId{0};
 };
-
-
