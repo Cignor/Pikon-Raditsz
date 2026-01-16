@@ -216,9 +216,30 @@ struct NodePinHelpers
 
 ### Implementation Pattern in drawIoPins
 
+> [!WARNING]
+> **Do NOT use `TreeNodeEx` in `drawIoPins`!** It causes glitches in ImNodes due to state conflicts. Use `Selectable` with manual toggle instead.
+
+> [!IMPORTANT]
+> You MUST apply the WorkRect constraint in `drawIoPins` to prevent Selectable from triggering when mouse is outside the node. Include `<imgui_internal.h>` for access to ImGuiWindow.
+
 ```cpp
+#include <imgui_internal.h> // Required for WorkRect workaround
+
 void MyModule::drawIoPins(const NodePinHelpers& helpers)
 {
+    // === WORKAROUND FOR IMNODES WIDGET BLEEDING ===
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float  cursorX = ImGui::GetCursorPosX();
+    const float  nodeWidth = getCustomNodeSize().x > 0 ? getCustomNodeSize().x : 240.0f;
+    const float  nodeRightEdge = cursorX + nodeWidth;
+
+    const float savedWorkRectMaxX = window->WorkRect.Max.x;
+    const float savedContentRegionMaxX = window->ContentRegionRect.Max.x;
+
+    window->WorkRect.Max.x = juce::jmin(savedWorkRectMaxX, nodeRightEdge);
+    window->ContentRegionRect.Max.x = juce::jmin(savedContentRegionMaxX, nodeRightEdge);
+
+    // Define pin groups
     struct PinGroup {
         const char* name;
         int startChannel;
@@ -228,12 +249,15 @@ void MyModule::drawIoPins(const NodePinHelpers& helpers)
     const PinGroup groups[] = {
         {"Group A", 0, 4},
         {"Group B", 4, 4},
-        // ...
     };
+    constexpr int numGroups = 2;
     
     // Static collapse state per node instance
-    static std::map<int, std::array<bool, N>> collapseState;
-    int nodeId = (int)getLogicalId();
+    static std::map<juce::uint32, std::array<bool, numGroups>> collapseState;
+    juce::uint32 nodeId = getLogicalId();
+    if (collapseState.find(nodeId) == collapseState.end())
+        collapseState[nodeId] = {true, true};
+    
     auto& collapsed = collapseState[nodeId];
     
     for (int g = 0; g < numGroups; ++g)
@@ -256,30 +280,24 @@ void MyModule::drawIoPins(const NodePinHelpers& helpers)
         
         ImGui::PushID(g);
         
-        // Header with connection indicator
-        juce::String header = group.name;
+        // Build header with arrow and connection indicator
+        juce::String header;
+        header << (collapsed[g] ? "\xE2\x96\xB6 " : "\xE2\x96\xBC "); // ▶ or ▼
+        header << group.name;
         if (collapsed[g] && hasConnections)
-            header += " [●]";
+            header << " [\xE2\x97\x8F]"; // ●
         
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth;
+        // Use Selectable for toggle (doesn't bleed like TreeNodeEx)
+        if (ImGui::Selectable(header.toRawUTF8(), false))
+            collapsed[g] = !collapsed[g];
+        
         if (!collapsed[g])
-            flags |= ImGuiTreeNodeFlags_DefaultOpen;
-        
-        if (ImGui::TreeNodeEx(header.toRawUTF8(), flags))
         {
-            collapsed[g] = false;
-            
-            // Draw ALL pins when expanded
             for (int i = 0; i < group.count; ++i)
                 helpers.drawAudioOutputPin(pinLabels[i], group.startChannel + i);
-            
-            ImGui::TreePop();
         }
         else
         {
-            collapsed[g] = true;
-            
-            // Draw ONLY connected pins when collapsed
             if (helpers.isOutputPinConnected)
             {
                 for (int i = 0; i < group.count; ++i)
@@ -292,12 +310,29 @@ void MyModule::drawIoPins(const NodePinHelpers& helpers)
         }
         ImGui::PopID();
     }
+
+    // === RESTORE WORKRECT VALUES ===
+    window->WorkRect.Max.x = savedWorkRectMaxX;
+    window->ContentRegionRect.Max.x = savedContentRegionMaxX;
 }
 ```
 
 ### Key Points
 
-1. **Connection indicator `[●]`** - Shows when collapsed section has active cables
-2. **Static collapse state per node** - Uses `getLogicalId()` to track per-instance
-3. **Graceful fallback** - If `isOutputPinConnected` is null, draw all pins
-4. **Group organization** - Logical grouping makes navigation easier
+1. **Use `Selectable` not `TreeNodeEx`** - TreeNodeEx causes glitches in ImNodes due to state conflicts
+2. **Apply WorkRect constraint** - Prevents widget hit areas from extending past node bounds
+3. **Manual arrow indicators** - Use `▶` (collapsed) and `▼` (expanded) Unicode characters
+4. **Connection indicator `[●]`** - Shows when collapsed section has active cables
+5. **Static collapse state per node** - Uses `getLogicalId()` to track per-instance
+6. **Override `usesCustomPinLayout()`** - Must return `true` for `drawIoPins` to be called
+
+### Required Override
+
+Add this to your module header:
+
+```cpp
+#if defined(PRESET_CREATOR_UI)
+    void drawIoPins(const NodePinHelpers& helpers) override;
+    bool usesCustomPinLayout() const override { return true; }
+#endif
+```

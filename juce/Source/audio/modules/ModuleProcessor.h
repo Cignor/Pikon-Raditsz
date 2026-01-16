@@ -216,6 +216,10 @@ struct NodePinHelpers
     // Draw input pin inline (just the pin circle, no label) - used for inline modulation pins
     // Returns true if pin was drawn, false if callback not set
     std::function<bool(int channel)> drawInlineInputPin;
+
+    // Check if an output pin has any connections (for smart collapsible sections)
+    // Returns true if the output pin at the specified bus/channel has at least one cable connected
+    std::function<bool(int busIndex, int channel)> isOutputPinConnected;
 };
 
 class ModularSynthProcessor; // forward declaration

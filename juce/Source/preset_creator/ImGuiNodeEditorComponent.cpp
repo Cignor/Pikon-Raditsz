@@ -4356,6 +4356,13 @@ void ImGuiNodeEditorComponent::renderImGui()
                         return true;
                     };
 
+                    // Check if an output pin has any connections (for smart collapsible sections)
+                    helpers.isOutputPinConnected = [&](int busIndex, int channel) -> bool {
+                        juce::ignoreUnused(busIndex); // Currently busIndex maps to channel directly
+                        const int attr = encodePinId({(juce::uint32)lid, channel, false});
+                        return connectedOutputAttrs.count(attr) > 0;
+                    };
+
                     // --- DYNAMIC PIN FIX ---
                     // Add a new helper that uses dynamic pin information from modules
                     helpers.drawIoPins = [&](ModuleProcessor* module) {
