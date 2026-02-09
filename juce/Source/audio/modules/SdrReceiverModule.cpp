@@ -19,7 +19,7 @@
 #include "SdrReceiverModule.h"
 #include <rtl-sdr.h>
 #include <cmath>
-#include <chrono>
+/#include <chrono>
 #include <cstdio>
 
 #if defined(PRESET_CREATOR_UI)

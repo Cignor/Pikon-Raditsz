@@ -1,5 +1,6 @@
 # Build directories
 juce/build/
+juce/build-opencv-cuda/
 juce/build-ninja-debug/
 juce/build-ninja-release/
 juce/build-ninja-*/
@@ -62,6 +63,7 @@ imgui.ini
 # Vendor binaries - exclude problematic directories with LFS issues
 vendor/openvino.genai-2025.3.0.0/
 vendor/MeloTTS.cpp/
+vendor/essentia-master/
 
 # Large files that exceed GitHub limits
 vendor/onnxruntime/lib/onnxruntime.pdb
