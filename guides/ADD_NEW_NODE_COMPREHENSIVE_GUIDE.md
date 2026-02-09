@@ -933,6 +933,12 @@ Use this checklist to ensure you've registered your module everywhere:
   - [ ] Audio-only build compiles successfully
   - [ ] Video modules don't appear in audio-only build UI
 
+- [ ] **11. ImNodes Widget Bleeding Workaround** (Modules with custom UI elements)
+  - [ ] `#include <imgui_internal.h>` added within `PRESET_CREATOR_UI` guard
+  - [ ] WorkRect workaround applied at START of `drawParametersInNode()`
+  - [ ] WorkRect values RESTORED at END of `drawParametersInNode()`
+  - [ ] `getCustomNodeSize()` implemented in `.cpp` file (if custom size needed)
+
 ---
 
 ## Naming Conventions
@@ -1094,9 +1100,182 @@ If you want to add a button in your module that auto-creates and connects other 
 
 ---
 
+## 12. ImNodes Widget Bleeding Workaround (CRITICAL for Custom UI)
+
+When your module uses **wide UI elements** like `PlotLines`, `AddRectFilled` for spectrum/waterfall displays, `SliderFloat`, `Combo`, `CollapsingHeader`, or any widget that queries available width, you **MUST** apply the WorkRect workaround. Without it, widgets will extend beyond the node bounds and corrupt the layout.
+
+### The Problem
+
+ImNodes renders nodes inside ImGui's canvas. By default, widgets use `WorkRect.Max.x` and `ContentRegionRect.Max.x` to determine their available width—but in ImNodes, these values represent the **entire canvas**, not the node bounds. This causes:
+
+- Waterfall displays extending across the entire screen
+- Sliders and combo boxes bleeding outside the node
+- PlotLines stretching beyond node boundaries
+- Nodes appearing "broken" after a few frames
+
+### The Solution
+
+At the **start** of `drawParametersInNode()`, save the original WorkRect values and constrain them to the node width. At the **end**, restore the original values.
+
+### Required Include
+
+```cpp
+#if defined(PRESET_CREATOR_UI)
+#include <imgui.h>
+#include <imgui_internal.h> // For WorkRect workaround to fix widget bleeding in nodes
+#endif
+```
+
+### Implementation Pattern
+
+```cpp
+void YourModule::drawParametersInNode(
+    float itemWidth,
+    const std::function<bool(const juce::String&)>&,
+    const std::function<void()>& onModificationEnded)
+{
+    // === WORKAROUND FOR IMNODES WIDGET BLEEDING ===
+    // Widgets like PlotLines, AddRectFilled, SliderFloat use WorkRect.Max.x
+    // which is the entire canvas in ImNodes, causing them to extend beyond node bounds.
+    // Solution: Temporarily constrain WorkRect and ContentRegionRect to node width.
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float  cursorScreenX = ImGui::GetCursorScreenPos().x;
+    const float  nodeRightEdge = cursorScreenX + itemWidth;
+
+    // Save original values
+    const float savedWorkRectMaxX = window->WorkRect.Max.x;
+    const float savedContentRegionMaxX = window->ContentRegionRect.Max.x;
+
+    // Constrain to node width
+    window->WorkRect.Max.x = juce::jmin(savedWorkRectMaxX, nodeRightEdge);
+    window->ContentRegionRect.Max.x = juce::jmin(savedContentRegionMaxX, nodeRightEdge);
+
+    ImGui::PushItemWidth(itemWidth);
+
+    // ====================================================
+    // Your drawing code goes here (PlotLines, waterfall, sliders, etc.)
+    // ====================================================
+
+    ImGui::PopItemWidth();
+
+    // === RESTORE WORKRECT VALUES ===
+    window->WorkRect.Max.x = savedWorkRectMaxX;
+    window->ContentRegionRect.Max.x = savedContentRegionMaxX;
+}
+```
+
+### Reference Implementation
+
+See `juce/Source/audio/modules/VideoFXModule.cpp` for a complete working example:
+
+```cpp
+void VideoFXModule::drawParametersInNode(/* ... */)
+{
+    // === WORKAROUND FOR IMNODES WIDGET BLEEDING ===
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float  cursorScreenX = ImGui::GetCursorScreenPos().x;
+    const float  nodeRightEdge = cursorScreenX + itemWidth;
+
+    const float savedWorkRectMaxX = window->WorkRect.Max.x;
+    const float savedContentRegionMaxX = window->ContentRegionRect.Max.x;
+
+    window->WorkRect.Max.x = juce::jmin(savedWorkRectMaxX, nodeRightEdge);
+    window->ContentRegionRect.Max.x = juce::jmin(savedContentRegionMaxX, nodeRightEdge);
+
+    ImGui::PushItemWidth(itemWidth);
+    
+    // ... all drawing code ...
+    
+    ImGui::PopItemWidth();
+
+    // === RESTORE WORKRECT VALUES ===
+    window->WorkRect.Max.x = savedWorkRectMaxX;
+    window->ContentRegionRect.Max.x = savedContentRegionMaxX;
+}
+```
+
+### When You Need This Workaround
+
+Apply this workaround if your module uses ANY of these:
+
+| Widget/Drawing Call | Risk Level | Notes |
+|---------------------|------------|-------|
+| `ImGui::PlotLines()` | **HIGH** | Will extend across canvas |
+| `ImGui::PlotHistogram()` | **HIGH** | Will extend across canvas |
+| `ImDrawList::AddRectFilled()` | **HIGH** | Used for waterfall/heatmaps |
+| `ImGui::SliderFloat()` | Medium | May extend slightly |
+| `ImGui::Combo()` | Medium | Dropdown may clip |
+| `ImGui::CollapsingHeader()` | Medium | Header line extends |
+| `ImGui::Columns()` | Medium | Column widths may be wrong |
+| Custom rendering with `GetContentRegionAvail()` | **HIGH** | Returns canvas size, not node size |
+
+### Custom Node Size
+
+If your module needs a larger node (e.g., for spectrum displays), implement `getCustomNodeSize()` in your `.cpp` file:
+
+```cpp
+#if defined(PRESET_CREATOR_UI)
+ImVec2 YourModule::getCustomNodeSize() const
+{
+    return ImVec2(340.0f, 0.0f); // Width in pixels, 0.0f = auto-height
+}
+#endif
+```
+
+And declare it in your `.h` file:
+
+```cpp
+#if defined(PRESET_CREATOR_UI)
+    ImVec2 getCustomNodeSize() const override;
+    void drawParametersInNode(/* ... */) override;
+    void drawIoPins(const NodePinHelpers& helpers) override;
+#endif
+```
+
+### Common Mistakes
+
+#### ❌ Mistake 1: Forgetting to Restore WorkRect
+```cpp
+// BAD - WorkRect stays constrained, affecting other nodes
+window->WorkRect.Max.x = juce::jmin(savedWorkRectMaxX, nodeRightEdge);
+// ... drawing code ...
+// Missing restore!
+```
+
+✅ **Solution:** Always restore at the end of the function
+
+#### ❌ Mistake 2: Not Including imgui_internal.h
+```cpp
+// BAD - Compiler error: ImGuiWindow is undefined
+ImGuiWindow* window = ImGui::GetCurrentWindow();
+```
+
+✅ **Solution:** Add `#include <imgui_internal.h>` within the `PRESET_CREATOR_UI` guard
+
+#### ❌ Mistake 3: Implementing getCustomNodeSize() Inline in Header
+```cpp
+// BAD - May cause linker issues or not be picked up correctly
+// In .h file:
+ImVec2 getCustomNodeSize() const override { return ImVec2(340.0f, 0.0f); }
+```
+
+✅ **Solution:** Declare in `.h`, implement in `.cpp` file (matching the pattern in VideoFXModule)
+
+### Checklist for Modules with Custom UI
+
+- [ ] `#include <imgui_internal.h>` added within `PRESET_CREATOR_UI` guard
+- [ ] WorkRect workaround applied at START of `drawParametersInNode()`
+- [ ] WorkRect values RESTORED at END of `drawParametersInNode()`
+- [ ] `ImGui::PushItemWidth(itemWidth)` called after constraining WorkRect
+- [ ] `ImGui::PopItemWidth()` called before restoring WorkRect
+- [ ] `getCustomNodeSize()` implemented in `.cpp` file (if needed)
+- [ ] Node width set appropriately in `PinDatabase.cpp` (`NodeWidth::Big` for wide nodes)
+
+---
+
 ## Conclusion
 
-Adding a new module requires updating **9-10 distinct locations** across **3 files**:
+Adding a new module requires updating **9-12 distinct locations** across **3-5 files**:
 
 **Files to modify:**
 1. `juce/Source/audio/modules/YourModuleProcessor.h` (new file)
@@ -1113,18 +1292,21 @@ Adding a new module requires updating **9-10 distinct locations** across **3 fil
 - 5 menu locations
 - 3 search components
 - **For video modules:** All of the above wrapped in `#ifndef AUDIO_ONLY_BUILD` guards
+- **For modules with custom UI (spectrums, waterfalls, etc.):** WorkRect workaround required
 
 **Important Notes:**
 - **Video/Computer Vision modules** require additional `#ifndef AUDIO_ONLY_BUILD` guards in ALL locations
 - **Audio modules** do NOT need these guards
+- **Modules with PlotLines, waterfalls, or wide widgets** MUST apply the WorkRect workaround (Section 12)
 - Always test the audio-only build after adding video modules
 
 Follow this guide systematically and use the checklist to ensure your module appears everywhere users expect to find it!
 
 ---
 
-**Last Updated:** December 2024  
+**Last Updated:** February 2026  
 **Reference Module:** Drive (`DriveModuleProcessor`)  
 **Video Module Reference:** VideoViewer (`VideoViewerModuleProcessor`)  
+**Custom UI Reference:** SDR Receiver (`SdrReceiverModule`), Video FX (`VideoFXModule`)  
 **Author:** Collider Modular Synthesizer Project
 

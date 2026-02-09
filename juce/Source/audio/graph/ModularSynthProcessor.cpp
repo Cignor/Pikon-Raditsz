@@ -104,7 +104,18 @@
 #include "../modules/ContourDetectorModule.h"
 #include "../modules/CropVideoModule.h"
 #include "../modules/VideoViewerModuleProcessor.h"
+#include "../modules/NdiReceiverModule.h"
+#include "../modules/YouTubeSourceModule.h"
 #endif
+
+// Wireless/Streaming Audio Receivers
+#include "../modules/InternetRadioReceiverModule.h"
+#include "../modules/SystemAudioCaptureModule.h"
+#include "../modules/SrtReceiverModule.h"
+#include "../modules/RtmpReceiverModule.h"
+#include "../modules/BluetoothAudioReceiverModule.h"
+#include "../modules/SdrReceiverModule.h"
+
 #include "../modules/InletModuleProcessor.h"
 #include "../modules/OutletModuleProcessor.h"
 #include "../modules/MetaModuleProcessor.h"
@@ -1147,7 +1158,18 @@ static std::map<juce::String, Creator>& getModuleFactory()
         reg("contour_detector", [] { return std::make_unique<ContourDetectorModule>(); });
         reg("crop_video", [] { return std::make_unique<CropVideoModule>(); });
         reg("video_viewer", [] { return std::make_unique<VideoViewerModuleProcessor>(); });
+        reg("ndi_receiver", [] { return std::make_unique<NdiReceiverModule>(); });
+        reg("youtube_source", [] { return std::make_unique<YouTubeSourceModule>(); });
 #endif
+
+        // Wireless/Streaming Audio Receivers
+        reg("sdr_receiver", [] { return std::make_unique<SdrReceiverModule>(); });
+        reg("internet_radio", [] { return std::make_unique<InternetRadioReceiverModule>(); });
+        reg("system_audio", [] { return std::make_unique<SystemAudioCaptureModule>(); });
+        reg("srt_receiver", [] { return std::make_unique<SrtReceiverModule>(); });
+        reg("rtmp_receiver", [] { return std::make_unique<RtmpReceiverModule>(); });
+        reg("bluetooth_audio", [] { return std::make_unique<BluetoothAudioReceiverModule>(); });
+
         reg("stroke_sequencer", [] { return std::make_unique<StrokeSequencerModuleProcessor>(); });
         reg("chord_arp", [] { return std::make_unique<ChordArpModuleProcessor>(); });
 

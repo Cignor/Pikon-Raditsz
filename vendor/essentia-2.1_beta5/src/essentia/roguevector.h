@@ -84,18 +84,22 @@ void RogueVector<T>::setSize(size_t size) {
   this->_M_impl._M_end_of_storage = this->_M_impl._M_start + size;
 }
 
-// Windows implementation
-#elif defined(OS_WIN32)
+// Windows implementation (Modern MSVC 2019+)
+#elif defined(OS_WIN32) || defined(_MSC_VER)
 
+// Modern MSVC changed internal std::vector layout, use pointer-based approach
 template <typename T>
 void RogueVector<T>::setData(T* data) {
-  this->_Myfirst() = data;
+  // std::vector internal layout: pointer to start, end, capacity_end
+  T** start = reinterpret_cast<T**>(this);
+  *start = data;
 }
 
 template <typename T>
 void RogueVector<T>::setSize(size_t size) {
-  this->_Mylast() = this->_Myfirst() + size;
-  this->_Myend() = this->_Myfirst() + size;
+  T** start = reinterpret_cast<T**>(this);
+  *(start+1) = *start + size;  // end
+  *(start+2) = *start + size;  // capacity_end
 }
 
 #endif

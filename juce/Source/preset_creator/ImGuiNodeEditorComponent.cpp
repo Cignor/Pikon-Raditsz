@@ -139,6 +139,8 @@ bool ImGuiNodeEditorComponent::s_globalGpuEnabled = true;
 #include "../audio/modules/VideoCompositorModule.h"
 #include "../audio/modules/VideoDrawImpactModuleProcessor.h"
 #include "../audio/modules/CropVideoModule.h"
+#include "../audio/modules/NdiReceiverModule.h"
+#include "../audio/modules/YouTubeSourceModule.h"
 #endif
 #include "../audio/modules/MapRangeModuleProcessor.h"
 #include "../audio/modules/LagProcessorModuleProcessor.h"
@@ -3457,6 +3459,15 @@ void ImGuiNodeEditorComponent::renderImGui()
             addModuleButton("Audio Input", "audio_input");
             addModuleButton("Sample Loader", "sample_loader");
             addModuleButton("Sample SFX", "sample_sfx");
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Streaming:");
+            addModuleButton("Internet Radio", "internet_radio");
+            addModuleButton("SDR Receiver", "sdr_receiver");
+            addModuleButton("System Audio", "system_audio");
+            addModuleButton("SRT Receiver", "srt_receiver");
+            addModuleButton("RTMP Receiver", "rtmp_receiver");
+            addModuleButton("Bluetooth Audio", "bluetooth_audio");
+            ImGui::Separator();
             addModuleButton("Value", "value");
         }
 
@@ -3627,6 +3638,8 @@ void ImGuiNodeEditorComponent::renderImGui()
             ThemeText("Sources:", theme.text.section_header);
             addModuleButton("Webcam Loader", "webcam_loader");
             addModuleButton("Video File Loader", "video_file_loader");
+            addModuleButton("NDI Receiver", "ndi_receiver");
+            addModuleButton("YouTube Source", "youtube_source");
             ImGui::Spacing();
             ThemeText("Processors:", theme.text.section_header);
             addModuleButton("Video FX", "video_fx");
@@ -5211,6 +5224,77 @@ void ImGuiNodeEditorComponent::renderImGui()
                             }
                         }
                         videoFileModule->drawParametersInNode(
+                            nodeContentWidth, isParamModulated, onModificationEnded);
+                    }
+                    else if (auto* ndiModule = dynamic_cast<NdiReceiverModule*>(mp))
+                    {
+                        juce::Image frame = ndiModule->getLatestFrame();
+                        if (!frame.isNull())
+                        {
+                            if (visionModuleTextures.find((int)lid) == visionModuleTextures.end())
+                            {
+                                visionModuleTextures[(int)lid] =
+                                    std::make_unique<juce::OpenGLTexture>();
+                            }
+                            juce::OpenGLTexture* texture = visionModuleTextures[(int)lid].get();
+                            texture->loadImage(frame);
+                            if (texture->getTextureID() != 0)
+                            {
+                                // Calculate aspect ratio dynamically from the actual frame
+                                // dimensions
+                                float nativeWidth = (float)frame.getWidth();
+                                float nativeHeight = (float)frame.getHeight();
+
+                                // Preserve the video's native aspect ratio
+                                float aspectRatio = (nativeWidth > 0.0f)
+                                                        ? nativeHeight / nativeWidth
+                                                        : 0.5625f; // Default to 16:9
+
+                                // Width is fixed at itemWidth, height scales proportionally
+                                ImVec2 renderSize =
+                                    ImVec2(nodeContentWidth, nodeContentWidth * aspectRatio);
+
+                                // Flip Y-coordinates to fix upside-down video
+                                ImGui::Image(
+                                    (void*)(intptr_t)texture->getTextureID(),
+                                    renderSize,
+                                    ImVec2(0, 1),
+                                    ImVec2(1, 0));
+                            }
+                        }
+                        ndiModule->drawParametersInNode(
+                            nodeContentWidth, isParamModulated, onModificationEnded);
+                    }
+                    else if (auto* youtubeModule = dynamic_cast<YouTubeSourceModule*>(mp))
+                    {
+                        juce::Image frame = youtubeModule->getLatestVideoFrame();
+                        if (!frame.isNull())
+                        {
+                            if (visionModuleTextures.find((int)lid) == visionModuleTextures.end())
+                            {
+                                visionModuleTextures[(int)lid] =
+                                    std::make_unique<juce::OpenGLTexture>();
+                            }
+                            juce::OpenGLTexture* texture = visionModuleTextures[(int)lid].get();
+                            texture->loadImage(frame);
+                            if (texture->getTextureID() != 0)
+                            {
+                                float  nativeWidth = (float)frame.getWidth();
+                                float  nativeHeight = (float)frame.getHeight();
+                                float  aspectRatio = (nativeWidth > 0.0f)
+                                                         ? nativeHeight / nativeWidth
+                                                         : 0.5625f; // Default to 16:9
+                                ImVec2 renderSize =
+                                    ImVec2(nodeContentWidth, nodeContentWidth * aspectRatio);
+                                // Flip Y for OpenGL
+                                ImGui::Image(
+                                    (void*)(intptr_t)texture->getTextureID(),
+                                    renderSize,
+                                    ImVec2(0, 1),
+                                    ImVec2(1, 0));
+                            }
+                        }
+                        youtubeModule->drawParametersInNode(
                             nodeContentWidth, isParamModulated, onModificationEnded);
                     }
                     else if (auto* movementModule = dynamic_cast<MovementDetectorModule*>(mp))
@@ -7495,6 +7579,18 @@ void ImGuiNodeEditorComponent::renderImGui()
                         addAtMouse("sample_loader");
                     if (ImGui::MenuItem("Sample SFX"))
                         addAtMouse("sample_sfx");
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Internet Radio"))
+                        addAtMouse("internet_radio");
+                    if (ImGui::MenuItem("System Audio"))
+                        addAtMouse("system_audio");
+                    if (ImGui::MenuItem("SRT Receiver"))
+                        addAtMouse("srt_receiver");
+                    if (ImGui::MenuItem("RTMP Receiver"))
+                        addAtMouse("rtmp_receiver");
+                    if (ImGui::MenuItem("Bluetooth Audio"))
+                        addAtMouse("bluetooth_audio");
+                    ImGui::Separator();
                     if (ImGui::MenuItem("Value"))
                         addAtMouse("value");
                     ImGui::EndMenu();
@@ -7694,6 +7790,8 @@ void ImGuiNodeEditorComponent::renderImGui()
                         addAtMouse("webcam_loader");
                     if (ImGui::MenuItem("Video File Loader"))
                         addAtMouse("video_file_loader");
+                    if (ImGui::MenuItem("NDI Receiver"))
+                        addAtMouse("ndi_receiver");
                     ImGui::Separator();
                     if (ImGui::MenuItem("Video FX"))
                         addAtMouse("video_fx");
@@ -14665,7 +14763,10 @@ ImGuiNodeEditorComponent::ModuleCategory ImGuiNodeEditorComponent::getModuleCate
     // --- 1. SOURCES (Green) ---
     if (lower.contains("vco") || lower.contains("polyvco") || lower.contains("stk_string") ||
         lower.contains("stk") || lower.contains("noise") || lower == "audio_input" ||
-        lower.contains("sample") || lower == "value")
+        lower.contains("sample") || lower == "value" ||
+        // Streaming audio sources
+        lower == "internet_radio" || lower == "system_audio" || lower == "srt_receiver" ||
+        lower == "rtmp_receiver" || lower == "bluetooth_audio" || lower == "sdr_receiver")
         return ModuleCategory::Source;
 
     // --- 2. EFFECTS (Red) ---
@@ -14723,7 +14824,7 @@ ImGuiNodeEditorComponent::ModuleCategory ImGuiNodeEditorComponent::getModuleCate
         lower == "crop_video" || lower == "video_viewer" || lower.contains("movement") ||
         lower.contains("detector") || lower.contains("opencv") || lower.contains("vision") ||
         lower.contains("tracker") || lower.contains("segmentation") ||
-        lower.contains("pose_estimator"))
+        lower.contains("pose_estimator") || lower == "youtube_source" || lower == "ndi_receiver")
         return ModuleCategory::OpenCV;
 #endif
 
@@ -14809,6 +14910,32 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
         {"Sample SFX",
          {"sample_sfx", "Plays sample variations from a folder with automatic switching"}},
 
+        // Wireless/Streaming Audio
+        {"Internet Radio",
+         {"internet_radio",
+          "Receives audio from internet radio streams (Icecast, Shoutcast). "
+          "Supports MP3, AAC, OGG with ICY metadata."}},
+        {"System Audio",
+         {"system_audio",
+          "Captures system audio using WASAPI loopback (Windows). "
+          "Record Spotify, YouTube, games, etc."}},
+        {"SRT Receiver",
+         {"srt_receiver",
+          "Receives low-latency audio via SRT (Secure Reliable Transport) protocol. "
+          "Supports encryption and both Listener/Caller modes."}},
+        {"RTMP Receiver",
+         {"rtmp_receiver",
+          "Receives audio from RTMP streams. "
+          "Compatible with OBS Studio and streaming servers."}},
+        {"Bluetooth Audio",
+         {"bluetooth_audio",
+          "Receives audio from Bluetooth devices. "
+          "Connect to phones, tablets, and other Bluetooth sources."}},
+        {"SDR Receiver",
+         {"sdr_receiver",
+          "Receives radio signals (FM/AM/SSB) from RTL-SDR USB dongles. Visualizes spectrum and "
+          "demodulates audio."}},
+
         // TTS
         {"TTS Performer", {"tts_performer", "Text-to-speech synthesizer"}},
         {"Vocal Tract Filter", {"vocal_tract_filter", "Physical model vocal tract filter"}},
@@ -14830,6 +14957,14 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
         {"Video File Loader",
          {"video_file_loader",
           "Loads and plays a video file, publishes it as a source for vision processing modules"}},
+        {"NDI Receiver",
+         {"ndi_receiver",
+          "Receives NDI video streams over the network from cameras, production software, and "
+          "other NDI-enabled devices"}},
+        {"YouTube Source",
+         {"youtube_source",
+          "Plays audio/video from YouTube URLs. Supports VOD downloads and live streams. "
+          "Downloads cached in 'downloads' folder. Video output in full build only."}},
         {"Video FX",
          {"video_fx",
           "Applies real-time video effects (brightness, contrast, saturation, blur, sharpen, etc.) "

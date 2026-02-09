@@ -1,0 +1,14 @@
+[
+{
+  "directory": "H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda",
+  "command": "C:\\VS\\Studio2022\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -MD /Fo_deps\\tinygltf-build\\CMakeFiles\\loader_example.dir\\loader_example.cc.obj /Fd_deps\\tinygltf-build\\CMakeFiles\\loader_example.dir\\ /FS -c H:\\0000_CODE\\01_collider_pyo\\juce\\build-opencv-cuda\\_deps\\tinygltf-src\\loader_example.cc",
+  "file": "H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/tinygltf-src/loader_example.cc",
+  "output": "H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/tinygltf-build/CMakeFiles/loader_example.dir/loader_example.cc.obj"
+},
+{
+  "directory": "H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda",
+  "command": "C:\\VS\\Studio2022\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -MD /Fo_deps\\tinygltf-build\\CMakeFiles\\tinygltf.dir\\tiny_gltf.cc.obj /Fd_deps\\tinygltf-build\\CMakeFiles\\tinygltf.dir\\tinygltf.pdb /FS -c H:\\0000_CODE\\01_collider_pyo\\juce\\build-opencv-cuda\\_deps\\tinygltf-src\\tiny_gltf.cc",
+  "file": "H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/tinygltf-src/tiny_gltf.cc",
+  "output": "H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/tinygltf-build/CMakeFiles/tinygltf.dir/tiny_gltf.cc.obj"
+}
+]

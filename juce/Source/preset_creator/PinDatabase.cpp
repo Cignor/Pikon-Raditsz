@@ -1,4 +1,4 @@
-﻿#include "PinDatabase.h"
+#include "PinDatabase.h"
 #include "ImGuiNodeEditorComponent.h" // For NodeWidth enum
 
 // Module Descriptions - populated on first use
@@ -171,6 +171,33 @@ void populateModuleDescriptions()
     descriptions["crop_video"] =
         "Crops a video stream based on CV signals (X, Y, Width, Height). Perfect for following "
         "detected objects or regions.";
+    descriptions["ndi_receiver"] =
+        "Receives NDI video streams over the network. Discover and connect to NDI sources from "
+        "cameras, production software, and other NDI-enabled devices.";
+    descriptions["youtube_source"] =
+        "Plays audio and video from YouTube URLs using yt-dlp. Supports VOD downloads (cached "
+        "locally) and live streams. Downloads are stored in the 'downloads' folder next to the "
+        "app.";
+
+    // Wireless/Streaming Audio Receivers
+    descriptions["internet_radio"] =
+        "Receives audio from internet radio streams (Icecast, Shoutcast, HTTP streams). "
+        "Supports MP3, AAC, OGG formats with ICY metadata display.";
+    descriptions["system_audio"] =
+        "Captures system audio using WASAPI loopback. Record any audio playing on your computer "
+        "(Spotify, YouTube, games, etc.) Windows only.";
+    descriptions["srt_receiver"] =
+        "Receives audio via SRT (Secure Reliable Transport) protocol. Low-latency streaming with "
+        "optional encryption. Supports Listener and Caller modes.";
+    descriptions["rtmp_receiver"] =
+        "Receives audio from RTMP streams. Compatible with OBS Studio, streaming servers, "
+        "and live streaming platforms.";
+    descriptions["bluetooth_audio"] =
+        "Receives audio from Bluetooth devices. Scan for paired devices and connect to receive "
+        "audio from phones, tablets, or other Bluetooth sources.";
+    descriptions["sdr_receiver"] =
+        "Receives radio signals (FM/AM/SSB) from RTL-SDR USB dongles. Visualizes spectrum and "
+        "demodulates audio.";
 #ifndef AUDIO_ONLY_BUILD
     descriptions["video_viewer"] =
         "Displays video in a separate resizable window for viewing or OBS capture. The window can "
@@ -1240,7 +1267,8 @@ void populatePinDatabase()
 
     db["de_crackle"] = ModulePinInfo(
         NodeWidth::Small,
-        {AudioPin("In L", 0, PinDataType::Audio), AudioPin("In R", 1, PinDataType::Audio),
+        {AudioPin("In L", 0, PinDataType::Audio),
+         AudioPin("In R", 1, PinDataType::Audio),
          AudioPin("Threshold Mod", 2, PinDataType::CV),
          AudioPin("Smoothing Mod", 3, PinDataType::CV),
          AudioPin("Amount Mod", 4, PinDataType::CV)},
@@ -1773,6 +1801,14 @@ void populatePinDatabase()
          ModPin("Width", "cropW_mod", PinDataType::CV),
          ModPin("Height", "cropH_mod", PinDataType::CV)});
 
+    // YouTube Source Module - fetches audio/video from YouTube URLs
+    // Audio-only version (works in all builds)
+    db["youtube_source"] = ModulePinInfo(
+        NodeWidth::Exception, // Uses custom size
+        {},                   // No inputs - URL is internal
+        {AudioPin("Audio L", 0, PinDataType::Audio), AudioPin("Audio R", 1, PinDataType::Audio)},
+        {ModPin("Volume", "volume", PinDataType::CV)});
+
 #ifndef AUDIO_ONLY_BUILD
     // Video Viewer Module - displays video in external window
     db["video_viewer"] = ModulePinInfo(
@@ -1780,5 +1816,74 @@ void populatePinDatabase()
         {AudioPin("Video In", 0, PinDataType::Video)}, // Video input
         {},                                            // No outputs - display only
         {});
+
+    // NDI Receiver Module - receives NDI video and audio streams over network
+    db["ndi_receiver"] = ModulePinInfo(
+        NodeWidth::Exception, // Uses custom size for video preview
+        {},                   // No inputs - source selection is internal
+        {AudioPin("Audio L", 0, PinDataType::Audio), AudioPin("Audio R", 1, PinDataType::Audio)},
+        {ModPin("Zoom", "zoom_mod", PinDataType::CV)});
+
+    // YouTube Source Module - full version with video output (overrides audio-only)
+    // Audio pins first (0,1) for auto-connect compatibility, Video pin last (2)
+    db["youtube_source"] = ModulePinInfo(
+        NodeWidth::Exception, // Uses custom size for video preview
+        {},                   // No inputs - URL is internal
+        {AudioPin("Audio L", 0, PinDataType::Audio),
+         AudioPin("Audio R", 1, PinDataType::Audio),
+         AudioPin("Video", 2, PinDataType::Video)},
+        {ModPin("Volume", "volume", PinDataType::CV)});
 #endif
+
+    // =========================================================================
+    // Wireless/Streaming Audio Receivers
+    // =========================================================================
+
+    // Internet Radio Receiver
+    db["internet_radio"] = ModulePinInfo(
+        NodeWidth::Medium,
+        {AudioPin("Trig", 0, PinDataType::CV), AudioPin("Sel", 1, PinDataType::CV)},
+        {AudioPin("L", 0, PinDataType::Audio),
+         AudioPin("R", 1, PinDataType::Audio),
+         AudioPin("Env", 2, PinDataType::CV)},
+        {});
+
+    // System Audio Capture - WASAPI loopback for system audio
+    db["system_audio"] = ModulePinInfo(
+        NodeWidth::Medium,
+        {}, // No inputs - source module
+        {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
+        {});
+
+    // SRT Receiver - low-latency SRT streaming
+    db["srt_receiver"] = ModulePinInfo(
+        NodeWidth::Medium,
+        {}, // No inputs - source module
+        {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
+        {});
+
+    // RTMP Receiver - receives RTMP streams (OBS, etc.)
+    db["rtmp_receiver"] = ModulePinInfo(
+        NodeWidth::Medium,
+        {}, // No inputs - source module
+        {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
+        {});
+
+    // Bluetooth Audio Receiver - receives audio from Bluetooth devices
+    db["bluetooth_audio"] = ModulePinInfo(
+        NodeWidth::Medium,
+        {}, // No inputs - source module
+        {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
+        {});
+
+    // SDR Receiver - Big node for waterfall display
+    // 4 CV inputs: Freq (±10MHz), Gain (±25dB), Squelch (±30dB), Bandwidth (±50kHz)
+    db["sdr_receiver"] = ModulePinInfo(
+        NodeWidth::Big,
+        {AudioPin("Freq CV", 0, PinDataType::CV),
+         AudioPin("Gain CV", 1, PinDataType::CV),
+         AudioPin("Squelch CV", 2, PinDataType::CV),
+         AudioPin("BW CV", 3, PinDataType::CV)},
+        {AudioPin("Out L", 0, PinDataType::Audio), AudioPin("Out R", 1, PinDataType::Audio)},
+        {});
 }

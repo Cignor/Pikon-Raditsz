@@ -195,9 +195,9 @@ UpdateInfo UpdateChecker::compareVersions(const UpdateManifest& manifest)
     {
         bool needsUpdate = false;
         auto localFile = installDir.getChildFile(fileInfo.relativePath);
-        bool isRunningExe = (fileInfo.relativePath.equalsIgnoreCase(runningExeName) || 
-                            (fileInfo.relativePath.endsWithIgnoreCase(".exe") && 
-                             localFile == runningExePath));
+        bool isRunningExe =
+            (fileInfo.relativePath.equalsIgnoreCase(runningExeName) ||
+             (fileInfo.relativePath.endsWithIgnoreCase(".exe") && localFile == runningExePath));
 
         // Check if file exists locally
         if (!localFile.exists())
@@ -211,139 +211,70 @@ UpdateInfo UpdateChecker::compareVersions(const UpdateManifest& manifest)
         }
         else if (!installedFiles.contains(fileInfo.relativePath))
         {
-            // File exists but not tracked - verify hash
-            // Special handling for running executable (can't hash locked file)
+            // File exists but NOT tracked - need to verify hash to be sure
+            // Skip hash for running EXE (can't hash locked file)
             if (isRunningExe)
             {
-                // For running EXE, check if it's already registered (might have happened after delay)
-                // If not registered, we'll skip it for now and let registerRunningExecutable handle it
-                // But if user manually checks, we should try to register it now
-                DBG("UpdateChecker: Running EXE found but not tracked - checking if already registered...");
-                
-                // Try to calculate hash (may fail if locked)
-                auto localHash = HashVerifier::calculateSHA256(localFile);
-                
-                if (localHash.isEmpty())
+                // For running EXE, use size as best-effort check
+                auto localSize = localFile.getSize();
+                if (localSize == fileInfo.size)
                 {
-                    // Can't hash running EXE - check if it's in installed_files.json now
-                    // (registerRunningExecutable might have run)
-                    if (versionManager.hasFile(fileInfo.relativePath))
-                    {
-                        DBG("UpdateChecker: Running EXE now tracked in installed_files.json - skipping");
-                        needsUpdate = false;
-                    }
-                    else
-                    {
-                        // Still not tracked - assume it needs update for now
-                        // But log a warning
-                        DBG("UpdateChecker: Running EXE cannot be hashed (locked) and not tracked - will be handled by registerRunningExecutable");
-                        juce::Logger::writeToLog(
-                            "UpdateChecker: Running EXE " + fileInfo.relativePath + 
-                            " cannot be verified (file locked). If hash matches manifest, it will be registered on next check.");
-                        // Skip for now - registerRunningExecutable will handle it
-                        needsUpdate = false;
-                    }
-                }
-                else if (localHash == fileInfo.sha256)
-                {
-                    // Hash matches, mark as installed and don't download
+                    // Size matches - register and assume correct for now
                     versionManager.updateFileRecord(fileInfo.relativePath, fileInfo);
                     needsUpdate = false;
-                    DBG("UpdateChecker: Running EXE hash verified - registered");
                 }
                 else
                 {
-                    // Hash mismatch, needs update
                     needsUpdate = true;
                     juce::Logger::writeToLog(
-                        "UpdateChecker: Running EXE hash mismatch: " + fileInfo.relativePath);
-                    juce::Logger::writeToLog(
-                        "  Local hash:  " + localHash);
-                    juce::Logger::writeToLog(
-                        "  Remote hash: " + fileInfo.sha256);
+                        "UpdateChecker: Running EXE size mismatch: " + fileInfo.relativePath);
                 }
             }
             else
             {
-                // Non-EXE file - normal hash verification
+                // For other files, calculate hash to verify (this runs on background thread)
                 auto localHash = HashVerifier::calculateSHA256(localFile);
 
-                if (localHash == fileInfo.sha256)
+                if (localHash.equalsIgnoreCase(fileInfo.sha256))
                 {
-                    // Hash matches, mark as installed and don't download
+                    // Hash matches - register and skip download
                     versionManager.updateFileRecord(fileInfo.relativePath, fileInfo);
                     needsUpdate = false;
                 }
                 else
                 {
-                    // Hash mismatch, needs update
+                    // Hash differs - needs update
                     needsUpdate = true;
-                    juce::Logger::writeToLog(
-                        "UpdateChecker: Hash mismatch for " + fileInfo.relativePath +
-                        " Local: " + localHash + " Remote: " + fileInfo.sha256);
+                    if (info.filesToDownload.size() < 5)
+                        juce::Logger::writeToLog(
+                            "UpdateChecker: Hash mismatch for " + fileInfo.relativePath);
                 }
             }
         }
         else
         {
-            // File is tracked - but we should still verify the actual file on disk
-            // to avoid re-downloading correct files due to stale tracking data
-            // Special handling for running executable
-            if (isRunningExe)
+            // File IS tracked - compare recorded hash with manifest hash
+            const auto& installed = installedFiles[fileInfo.relativePath];
+
+            if (installed.sha256.equalsIgnoreCase(fileInfo.sha256))
             {
-                // For running EXE, if it's tracked and hash matches manifest, trust it
-                const auto& installed = installedFiles[fileInfo.relativePath];
-                if (installed.sha256 == fileInfo.sha256)
+                // Hash in our records matches manifest - file is up to date
+                if (installed.version != fileInfo.version)
                 {
-                    // Hash in record matches manifest - trust it (can't verify running EXE)
-                    if (installed.version != fileInfo.version)
-                    {
-                        // Update version if needed
-                        versionManager.updateFileRecord(fileInfo.relativePath, fileInfo);
-                        juce::Logger::writeToLog(
-                            "UpdateChecker: Updated version for running EXE: " + fileInfo.relativePath);
-                    }
-                    needsUpdate = false;
-                    DBG("UpdateChecker: Running EXE is tracked and hash matches manifest - skipping");
+                    // Version string changed but hash same - just update record
+                    versionManager.updateFileRecord(fileInfo.relativePath, fileInfo);
                 }
-                else
-                {
-                    // Hash in record doesn't match - needs update
-                    needsUpdate = true;
-                    juce::Logger::writeToLog(
-                        "UpdateChecker: Running EXE hash in record doesn't match manifest: " + fileInfo.relativePath);
-                    juce::Logger::writeToLog(
-                        "  Record hash:  " + installed.sha256);
-                    juce::Logger::writeToLog(
-                        "  Manifest hash: " + fileInfo.sha256);
-                }
+                needsUpdate = false;
             }
             else
             {
-                // Non-EXE file - normal hash verification
-                auto localHash = HashVerifier::calculateSHA256(localFile);
-
-                if (localHash == fileInfo.sha256)
-                {
-                    // File on disk matches manifest - update record if needed and skip download
-                    const auto& installed = installedFiles[fileInfo.relativePath];
-                    if (installed.version != fileInfo.version || installed.sha256 != fileInfo.sha256)
-                    {
-                        // Record was stale - update it
-                        versionManager.updateFileRecord(fileInfo.relativePath, fileInfo);
-                        juce::Logger::writeToLog(
-                            "UpdateChecker: Updated stale record for " + fileInfo.relativePath);
-                    }
-                    needsUpdate = false;
-                }
-                else
-                {
-                    // File on disk doesn't match - needs update
-                    needsUpdate = true;
+                // Hash in our records differs from manifest - needs update!
+                needsUpdate = true;
+                if (info.filesToDownload.size() < 5)
                     juce::Logger::writeToLog(
-                        "UpdateChecker: File changed on disk: " + fileInfo.relativePath +
-                        " Local: " + localHash + " Remote: " + fileInfo.sha256);
-                }
+                        "UpdateChecker: File hash changed: " + fileInfo.relativePath +
+                        " Recorded: " + installed.sha256.substring(0, 8) +
+                        " Manifest: " + fileInfo.sha256.substring(0, 8));
             }
         }
 
@@ -415,10 +346,9 @@ int UpdateChecker::compareVersionStrings(const juce::String& v1, const juce::Str
 
 void UpdateChecker::cacheManifestLocally(const juce::String& jsonString)
 {
-    auto cacheFile = versionManager.getVersionFile()
-        .getParentDirectory()
-        .getChildFile("manifest_cache.json");
-    
+    auto cacheFile =
+        versionManager.getVersionFile().getParentDirectory().getChildFile("manifest_cache.json");
+
     cacheFile.getParentDirectory().createDirectory();
     cacheFile.replaceWithText(jsonString);
     DBG("Manifest cached to: " + cacheFile.getFullPathName());

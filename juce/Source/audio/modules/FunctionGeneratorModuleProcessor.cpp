@@ -2,6 +2,7 @@
 
 #if defined(PRESET_CREATOR_UI)
 #include "../../preset_creator/theme/ThemeManager.h"
+#include "../../preset_creator/ControllerPresetManager.h"
 #endif
 
 #if defined(PRESET_CREATOR_UI)
@@ -9,52 +10,77 @@
 #endif
 
 // <<< FIX: Removed all "_mod" parameters. They should NOT be part of the APVTS.
-juce::AudioProcessorValueTreeState::ParameterLayout FunctionGeneratorModuleProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout FunctionGeneratorModuleProcessor::
+    createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        paramIdRate, "Rate",
-        juce::NormalisableRange<float>(0.1f, 100.0f, 0.01f, 0.25f), 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            paramIdRate, "Rate", juce::NormalisableRange<float>(0.1f, 100.0f, 0.01f, 0.25f), 1.0f));
 
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        paramIdMode, "Mode",
-        juce::StringArray{"Free (Hz)", "Sync"}, 0));
+    params.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            paramIdMode, "Mode", juce::StringArray{"Free (Hz)", "Sync"}, 0));
 
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        paramIdLoop, "Loop", true)); // <<< FIX: Changed default to true for more immediate sound
+    // Transport sync division parameter (like StepSequencer)
+    params.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            "rate_division",
+            "Division",
+            juce::StringArray{"1/32", "1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8"},
+            3)); // Default: 1/4 note
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        paramIdSlew, "Slew",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.5f), 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterBool>(
+            paramIdLoop,
+            "Loop",
+            true)); // <<< FIX: Changed default to true for more immediate sound
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        paramIdGateThresh, "Gate Thresh",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.5f), 0.5f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            paramIdSlew, "Slew", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.5f), 0.0f));
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        paramIdTrigThresh, "Trig Thresh",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.5f), 0.5f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            paramIdGateThresh,
+            "Gate Thresh",
+            juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.5f),
+            0.5f));
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        paramIdPitchBase, "Pitch Base (st)",
-        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            paramIdTrigThresh,
+            "Trig Thresh",
+            juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.5f),
+            0.5f));
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        paramIdValueMult, "Value Mult",
-        juce::NormalisableRange<float>(0.0f, 10.0f, 0.01f, 0.5f), 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            paramIdPitchBase,
+            "Pitch Base (st)",
+            juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f),
+            0.0f));
 
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        paramIdCurveSelect, "Curve Select",
-        juce::StringArray{"Blue", "Red", "Green"}, 0));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            paramIdValueMult,
+            "Value Mult",
+            juce::NormalisableRange<float>(0.0f, 10.0f, 0.01f, 0.5f),
+            1.0f));
 
-    return { params.begin(), params.end() };
+    params.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            paramIdCurveSelect, "Curve Select", juce::StringArray{"Blue", "Red", "Green"}, 0));
+
+    return {params.begin(), params.end()};
 }
 
 FunctionGeneratorModuleProcessor::FunctionGeneratorModuleProcessor()
-    : ModuleProcessor(BusesProperties()
-                          .withInput("Inputs", juce::AudioChannelSet::discreteChannels(10), true)
-                          .withOutput("Outputs", juce::AudioChannelSet::discreteChannels(13), true)),
+    : ModuleProcessor(
+          BusesProperties()
+              .withInput("Inputs", juce::AudioChannelSet::discreteChannels(10), true)
+              .withOutput("Outputs", juce::AudioChannelSet::discreteChannels(13), true)),
       apvts(*this, nullptr, "FunctionGeneratorParams", createParameterLayout())
 {
     // Initialize all three curves to default shapes
@@ -66,9 +92,16 @@ FunctionGeneratorModuleProcessor::FunctionGeneratorModuleProcessor()
             float x = (float)i / (float)(CURVE_RESOLUTION - 1);
             switch (curveIndex)
             {
-                case 0: curves[curveIndex][i] = x; break; // Blue curve - ramp up
-                case 1: curves[curveIndex][i] = 1.0f - x; break; // Red curve - ramp down
-                case 2: curves[curveIndex][i] = 0.5f + 0.5f * std::sin(x * juce::MathConstants<float>::twoPi); break; // Green curve - sine wave
+            case 0:
+                curves[curveIndex][i] = x;
+                break; // Blue curve - ramp up
+            case 1:
+                curves[curveIndex][i] = 1.0f - x;
+                break; // Red curve - ramp down
+            case 2:
+                curves[curveIndex][i] =
+                    0.5f + 0.5f * std::sin(x * juce::MathConstants<float>::twoPi);
+                break; // Green curve - sine wave
             }
         }
     }
@@ -93,7 +126,7 @@ void FunctionGeneratorModuleProcessor::prepareToPlay(double sr, int)
     sampleRate = sr;
     phase = 0.0;
     lastPhase = 0.0;
-    
+
     smoothedSlew.reset(sampleRate, 0.01);
     smoothedRate.reset(sampleRate, 0.01);
     smoothedGateThresh.reset(sampleRate, 0.001);
@@ -114,10 +147,12 @@ void FunctionGeneratorModuleProcessor::forceStop()
     lastPhase = 0.0;
 }
 
-void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+void FunctionGeneratorModuleProcessor::processBlock(
+    juce::AudioBuffer<float>& buffer,
+    juce::MidiBuffer&         midi)
 {
     juce::ignoreUnused(midi);
-    
+
     auto inBus = getBusBuffer(buffer, true, 0);
     auto outBus = getBusBuffer(buffer, false, 0);
 
@@ -133,24 +168,31 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
     const float* gateIn = inBus.getNumChannels() > 0 ? inBus.getReadPointer(0) : nullptr;
     const float* triggerIn = inBus.getNumChannels() > 1 ? inBus.getReadPointer(1) : nullptr;
     const float* syncIn = inBus.getNumChannels() > 2 ? inBus.getReadPointer(2) : nullptr;
-    const float* rateCV = isRateMod && inBus.getNumChannels() > 3 ? inBus.getReadPointer(3) : nullptr;
-    const float* slewCV = isSlewMod && inBus.getNumChannels() > 4 ? inBus.getReadPointer(4) : nullptr;
-    const float* gateThreshCV = isGateThreshMod && inBus.getNumChannels() > 5 ? inBus.getReadPointer(5) : nullptr;
-    const float* trigThreshCV = isTrigThreshMod && inBus.getNumChannels() > 6 ? inBus.getReadPointer(6) : nullptr;
-    const float* pitchBaseCV = isPitchBaseMod && inBus.getNumChannels() > 7 ? inBus.getReadPointer(7) : nullptr;
-    const float* valueMultCV = isValueMultMod && inBus.getNumChannels() > 8 ? inBus.getReadPointer(8) : nullptr;
-    const float* curveSelectCV = isCurveSelectMod && inBus.getNumChannels() > 9 ? inBus.getReadPointer(9) : nullptr;
+    const float* rateCV =
+        isRateMod && inBus.getNumChannels() > 3 ? inBus.getReadPointer(3) : nullptr;
+    const float* slewCV =
+        isSlewMod && inBus.getNumChannels() > 4 ? inBus.getReadPointer(4) : nullptr;
+    const float* gateThreshCV =
+        isGateThreshMod && inBus.getNumChannels() > 5 ? inBus.getReadPointer(5) : nullptr;
+    const float* trigThreshCV =
+        isTrigThreshMod && inBus.getNumChannels() > 6 ? inBus.getReadPointer(6) : nullptr;
+    const float* pitchBaseCV =
+        isPitchBaseMod && inBus.getNumChannels() > 7 ? inBus.getReadPointer(7) : nullptr;
+    const float* valueMultCV =
+        isValueMultMod && inBus.getNumChannels() > 8 ? inBus.getReadPointer(8) : nullptr;
+    const float* curveSelectCV =
+        isCurveSelectMod && inBus.getNumChannels() > 9 ? inBus.getReadPointer(9) : nullptr;
 
     const float baseRate = rateParam->load();
-    const int baseMode = static_cast<int>(modeParam->load());
-    const bool baseLoop = loopParam->load() > 0.5f;
+    const int   baseMode = static_cast<int>(modeParam->load());
+    const bool  baseLoop = loopParam->load() > 0.5f;
     const float baseSlew = slewParam->load();
     const float baseGateThresh = gateThreshParam->load();
     const float baseTrigThresh = trigThreshParam->load();
     const float basePitchBase = pitchBaseParam->load();
     const float baseValueMult = valueMultParam->load();
-    const int baseCurveSelect = static_cast<int>(curveSelectParam->load());
-    
+    const int   baseCurveSelect = static_cast<int>(curveSelectParam->load());
+
     // Check Global Reset (pulse from Timeline Master loop)
     // When SampleLoader/VideoLoader loops and is timeline master, all synced modules reset
     // Only check if in sync mode (baseMode == 1) and playing
@@ -164,28 +206,35 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
         float effectiveRate = baseRate;
-        if (isRateMod && rateCV) {
+        if (isRateMod && rateCV)
+        {
             const float cv = juce::jlimit(0.0f, 1.0f, rateCV[i]);
             effectiveRate = juce::jmap(cv, 0.1f, 100.0f);
         }
 
         float effectiveSlew = baseSlew;
-        if (isSlewMod && slewCV) effectiveSlew = juce::jlimit(0.0f, 1.0f, slewCV[i]);
+        if (isSlewMod && slewCV)
+            effectiveSlew = juce::jlimit(0.0f, 1.0f, slewCV[i]);
 
         float effectiveGateThresh = baseGateThresh;
-        if (isGateThreshMod && gateThreshCV) effectiveGateThresh = juce::jlimit(0.0f, 1.0f, gateThreshCV[i]);
+        if (isGateThreshMod && gateThreshCV)
+            effectiveGateThresh = juce::jlimit(0.0f, 1.0f, gateThreshCV[i]);
 
         float effectiveTrigThresh = baseTrigThresh;
-        if (isTrigThreshMod && trigThreshCV) effectiveTrigThresh = juce::jlimit(0.0f, 1.0f, trigThreshCV[i]);
+        if (isTrigThreshMod && trigThreshCV)
+            effectiveTrigThresh = juce::jlimit(0.0f, 1.0f, trigThreshCV[i]);
 
         float effectivePitchBase = basePitchBase;
-        if (isPitchBaseMod && pitchBaseCV) effectivePitchBase = juce::jlimit(-24.0f, 24.0f, pitchBaseCV[i] * 48.0f - 24.0f);
+        if (isPitchBaseMod && pitchBaseCV)
+            effectivePitchBase = juce::jlimit(-24.0f, 24.0f, pitchBaseCV[i] * 48.0f - 24.0f);
 
         float effectiveValueMult = baseValueMult;
-        if (isValueMultMod && valueMultCV) effectiveValueMult = juce::jlimit(0.0f, 10.0f, valueMultCV[i] * 10.0f);
+        if (isValueMultMod && valueMultCV)
+            effectiveValueMult = juce::jlimit(0.0f, 10.0f, valueMultCV[i] * 10.0f);
 
         int effectiveCurveSelect = baseCurveSelect;
-        if (isCurveSelectMod && curveSelectCV) {
+        if (isCurveSelectMod && curveSelectCV)
+        {
             const float cv = juce::jlimit(0.0f, 1.0f, curveSelectCV[i]);
             effectiveCurveSelect = static_cast<int>(cv * 2.99f);
         }
@@ -211,20 +260,30 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
             // If a cable is connected, let it take control
             currentGateState = (gateIn[i] > smoothedTrigThreshValue);
         }
-        bool triggerRising = triggerIn && (triggerIn[i] > smoothedTrigThreshValue) && !lastTriggerState;
+        bool triggerRising =
+            triggerIn && (triggerIn[i] > smoothedTrigThreshValue) && !lastTriggerState;
         bool syncRising = syncIn && (syncIn[i] > 0.5f) && !lastSyncState;
-        
+
         bool endOfCycle = false;
 
         if (baseMode == 1 && m_currentTransport.isPlaying) // Sync mode
         {
-            const int divisionIndex = 3; // Fixed to 1/4 note for now (you can add a parameter later)
-            static const double divisions[] = { 1.0/32.0, 1.0/16.0, 1.0/8.0, 1.0/4.0, 1.0/2.0, 1.0, 2.0, 4.0, 8.0 };
+            int divisionIndex = (int)apvts.getRawParameterValue("rate_division")->load();
+            // Use global division if a Tempo Clock has override enabled
+            if (getParent())
+            {
+                int globalDiv = getParent()->getTransportState().globalDivisionIndex.load();
+                if (globalDiv >= 0)
+                    divisionIndex = globalDiv;
+            }
+            static const double divisions[] = {
+                1.0 / 32.0, 1.0 / 16.0, 1.0 / 8.0, 1.0 / 4.0, 1.0 / 2.0, 1.0, 2.0, 4.0, 8.0};
             const double beatDivision = divisions[juce::jlimit(0, 8, divisionIndex)];
-            
-            double currentBeat = m_currentTransport.songPositionBeats + (i / sampleRate / 60.0 * m_currentTransport.bpm);
+
+            double currentBeat = m_currentTransport.songPositionBeats +
+                                 (i / sampleRate / 60.0 * m_currentTransport.bpm);
             phase = std::fmod(currentBeat * beatDivision, 1.0);
-            
+
             if (phase < lastPhase) // Loop point
             {
                 endOfCycle = true;
@@ -235,22 +294,28 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
         {
             // Only advance if transport is playing (prevents auto-start on patch load)
             // This ensures free-running modules respect transport state
-            if (currentGateState && m_currentTransport.isPlaying) {
+            if (currentGateState && m_currentTransport.isPlaying)
+            {
                 phase += smoothedRateValue / sampleRate;
             }
-            if (syncRising) {
+            if (syncRising)
+            {
                 phase = 0.0;
             }
-            if (phase >= 1.0) {
-                if (baseLoop) {
+            if (phase >= 1.0)
+            {
+                if (baseLoop)
+                {
                     phase = std::fmod(phase, 1.0);
                     endOfCycle = true;
-                } else {
+                }
+                else
+                {
                     phase = 1.0;
                 }
             }
         }
-        
+
         // Look up all three curves, plus the selected one for slewing
         float blueValue = interpolateCurve(0, static_cast<float>(phase));
         float redValue = interpolateCurve(1, static_cast<float>(phase));
@@ -259,13 +324,26 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
         targetValue = interpolateCurve(effectiveCurveSelect, static_cast<float>(phase));
 
         // Apply slew using a simplified, standard one-pole filter logic
-        float slewCoeff = 1.0f - std::exp(-1.0f / (0.001f + smoothedSlewValue * smoothedSlewValue * (float)sampleRate));
+        float slewCoeff =
+            1.0f -
+            std::exp(-1.0f / (0.001f + smoothedSlewValue * smoothedSlewValue * (float)sampleRate));
         currentValue += (targetValue - currentValue) * slewCoeff;
-        
-        float outputs[13];
-        generateOutputs(currentValue, blueValue, redValue, greenValue, endOfCycle, outputs, smoothedGateThreshValue, smoothedPitchBaseValue, smoothedValueMultValue);
 
-        for (int ch = 0; ch < 13 && ch < outBus.getNumChannels(); ++ch) {
+        float outputs[13];
+        generateOutputs(
+            currentValue,
+            blueValue,
+            redValue,
+            greenValue,
+            endOfCycle,
+            outputs,
+            smoothedGateThreshValue,
+            smoothedPitchBaseValue,
+            smoothedValueMultValue,
+            m_currentTransport.isPlaying);
+
+        for (int ch = 0; ch < 13 && ch < outBus.getNumChannels(); ++ch)
+        {
             outBus.getWritePointer(ch)[i] = outputs[ch];
         }
 
@@ -273,7 +351,8 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
         lastGateState = currentGateState;
         lastSyncState = syncIn && (syncIn[i] > 0.5f);
 
-        if ((i & 63) == 0) {
+        if ((i & 63) == 0)
+        {
             setLiveParamValue("rate_live", smoothedRate.getCurrentValue());
             setLiveParamValue("slew_live", smoothedSlew.getCurrentValue());
             setLiveParamValue("gateThresh_live", smoothedGateThresh.getCurrentValue());
@@ -284,9 +363,12 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
         }
     }
 
-    if (lastOutputValues.size() >= 13) {
-        for (int ch = 0; ch < 13 && ch < outBus.getNumChannels(); ++ch) {
-            if (lastOutputValues[ch]) {
+    if (lastOutputValues.size() >= 13)
+    {
+        for (int ch = 0; ch < 13 && ch < outBus.getNumChannels(); ++ch)
+        {
+            if (lastOutputValues[ch])
+            {
                 lastOutputValues[ch]->store(outBus.getSample(ch, buffer.getNumSamples() - 1));
             }
         }
@@ -295,39 +377,58 @@ void FunctionGeneratorModuleProcessor::processBlock(juce::AudioBuffer<float>& bu
 
 float FunctionGeneratorModuleProcessor::interpolateCurve(int curveIndex, float p)
 {
-    if (curveIndex < 0 || curveIndex >= 3) return 0.0f;
+    if (curveIndex < 0 || curveIndex >= 3)
+        return 0.0f;
     const auto& curve = curves[curveIndex];
-    float scaledPhase = p * (CURVE_RESOLUTION - 1);
-    int index = static_cast<int>(scaledPhase);
-    float fraction = scaledPhase - index;
-    if (index >= CURVE_RESOLUTION - 1) return curve[CURVE_RESOLUTION - 1];
+    float       scaledPhase = p * (CURVE_RESOLUTION - 1);
+    int         index = static_cast<int>(scaledPhase);
+    float       fraction = scaledPhase - index;
+    if (index >= CURVE_RESOLUTION - 1)
+        return curve[CURVE_RESOLUTION - 1];
     float y1 = curve[index];
     float y2 = curve[index + 1];
     return y1 + fraction * (y2 - y1);
 }
 
-void FunctionGeneratorModuleProcessor::generateOutputs(float selectedValue, float blueValue, float redValue, float greenValue, bool eoc, float* outs, float gateThresh, float pitchBase, float valueMult)
+void FunctionGeneratorModuleProcessor::generateOutputs(
+    float  selectedValue,
+    float  blueValue,
+    float  redValue,
+    float  greenValue,
+    bool   eoc,
+    float* outs,
+    float  gateThresh,
+    float  pitchBase,
+    float  valueMult,
+    bool   isPlaying)
 {
     // --- Existing Outputs (based on selected curve) ---
-    outs[0] = selectedValue; // Value
-    outs[1] = 1.0f - selectedValue; // Inverted
+    outs[0] = selectedValue;               // Value
+    outs[1] = 1.0f - selectedValue;        // Inverted
     outs[2] = selectedValue * 2.0f - 1.0f; // Bipolar
-    
+
     float pitchBaseOffset = pitchBase / 12.0f;
     outs[3] = pitchBaseOffset + selectedValue * valueMult; // Pitch
-    
+
+    // Gate and Trigger respect transport state (silence when stopped)
     bool gateHigh = selectedValue > gateThresh;
-    outs[4] = gateHigh ? 1.0f : 0.0f; // Gate
-    
-    if (gateHigh && !lastGateOut) outs[5] = 1.0f; // Trigger
-    else outs[5] = 0.0f;
+    // CRITICAL FIX: Silence gates when transport is stopped (like StepSequencer)
+    outs[4] = (isPlaying && gateHigh) ? 1.0f : 0.0f; // Gate
+
+    // CRITICAL FIX: Silence triggers when transport is stopped
+    if (isPlaying && gateHigh && !lastGateOut)
+        outs[5] = 1.0f; // Trigger
+    else
+        outs[5] = 0.0f;
     lastGateOut = gateHigh;
-    
-    if (eoc) { // End of Cycle
+
+    if (eoc)
+    {                                                             // End of Cycle
         eocPulseRemaining = static_cast<int>(sampleRate * 0.001); // 1ms pulse
     }
     outs[6] = (eocPulseRemaining > 0) ? 1.0f : 0.0f;
-    if (eocPulseRemaining > 0) --eocPulseRemaining;
+    if (eocPulseRemaining > 0)
+        --eocPulseRemaining;
 
     // --- New Dedicated Curve Outputs ---
     outs[7] = blueValue;
@@ -341,18 +442,243 @@ void FunctionGeneratorModuleProcessor::generateOutputs(float selectedValue, floa
 }
 
 #if defined(PRESET_CREATOR_UI)
-void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, const std::function<bool(const juce::String&)>& isParamModulated, const std::function<void()>& onModificationEnded, const NodePinHelpers* pinHelpers)
+void FunctionGeneratorModuleProcessor::drawParametersInNode(
+    float                                           itemWidth,
+    const std::function<bool(const juce::String&)>& isParamModulated,
+    const std::function<void()>&                    onModificationEnded,
+    const NodePinHelpers*                           pinHelpers)
 {
-    ImGui::PushID(this);  // Prevent ImGui ID collisions between module instances
-    
-    auto& ap = getAPVTS();
+    ImGui::PushID(this); // Prevent ImGui ID collisions between module instances
+
+    auto&       ap = getAPVTS();
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
-    
+
     ImGui::PushItemWidth(itemWidth);
+
+    // === SECTION: Presets ===
+    auto& presetManager = ControllerPresetManager::get();
+
+    // Define standard curve presets
+    struct StandardPreset
+    {
+        const char* name;
+        // Each preset defines all 3 curves (blue, red, green)
+        enum CurveType
+        {
+            RampUp,
+            RampDown,
+            Triangle,
+            ExpUp,
+            ExpDown,
+            Sine,
+            Cosine,
+            SCurve,
+            Bell
+        };
+        CurveType curves[3];
+    };
+    const StandardPreset standardPresets[] = {
+        {"Ramp Up/Down", {StandardPreset::RampUp, StandardPreset::RampDown, StandardPreset::Sine}},
+        {"Triangle", {StandardPreset::Triangle, StandardPreset::Triangle, StandardPreset::Sine}},
+        {"Exponential", {StandardPreset::ExpUp, StandardPreset::ExpDown, StandardPreset::SCurve}},
+        {"Sine/Cosine", {StandardPreset::Sine, StandardPreset::Cosine, StandardPreset::Bell}},
+        {"S-Curves", {StandardPreset::SCurve, StandardPreset::SCurve, StandardPreset::Bell}},
+    };
+    const int numStandardPresets = sizeof(standardPresets) / sizeof(standardPresets[0]);
+
+    // Helper to generate curve values
+    auto generateCurve = [](StandardPreset::CurveType type, std::vector<float>& curve) {
+        const int res = (int)curve.size();
+        for (int i = 0; i < res; ++i)
+        {
+            float x = (float)i / (float)(res - 1);
+            float y = 0.0f;
+            switch (type)
+            {
+            case StandardPreset::RampUp:
+                y = x;
+                break;
+            case StandardPreset::RampDown:
+                y = 1.0f - x;
+                break;
+            case StandardPreset::Triangle:
+                y = (x < 0.5f) ? (x * 2.0f) : (2.0f - x * 2.0f);
+                break;
+            case StandardPreset::ExpUp:
+                y = x * x;
+                break;
+            case StandardPreset::ExpDown:
+                y = 1.0f - x * x;
+                break;
+            case StandardPreset::Sine:
+                y = 0.5f + 0.5f * std::sin(x * juce::MathConstants<float>::twoPi);
+                break;
+            case StandardPreset::Cosine:
+                y = 0.5f + 0.5f * std::cos(x * juce::MathConstants<float>::twoPi);
+                break;
+            case StandardPreset::SCurve:
+                y = 0.5f * (1.0f + std::tanh((x - 0.5f) * 6.0f));
+                break;
+            case StandardPreset::Bell:
+                y = std::exp(-std::pow((x - 0.5f) * 4.0f, 2.0f));
+                break;
+            }
+            curve[i] = y;
+        }
+    };
+
+    // Get saved presets
+    const auto& savedPresetNames =
+        presetManager.getPresetNamesFor(ControllerPresetManager::ModuleType::FunctionGenerator);
+
+    // Note: selectedPresetIndex and selectedStandardPresetIndex are saved/restored
+    // via getExtraStateTree/setExtraStateTree, so no additional sync needed here
+
+    // Build combined list
+    juce::StringArray allPresetNames;
+    for (int i = 0; i < numStandardPresets; ++i)
+        allPresetNames.add(standardPresets[i].name);
+    allPresetNames.add("---");
+    for (const auto& name : savedPresetNames)
+        allPresetNames.add(name);
+
+    std::vector<const char*> comboItems;
+    for (const auto& name : allPresetNames)
+        comboItems.push_back(name.toRawUTF8());
+    if (comboItems.empty())
+        comboItems.push_back("<no presets>");
+
+    int comboSelection = 0;
+    if (selectedPresetIndex >= 0 && selectedPresetIndex < savedPresetNames.size())
+        comboSelection = numStandardPresets + 1 + selectedPresetIndex;
+    else
+        comboSelection = juce::jlimit(0, numStandardPresets - 1, selectedStandardPresetIndex);
+
+    auto applyPresetSelection = [&](int selection) {
+        if (selection < numStandardPresets)
+        {
+            const auto& preset = standardPresets[selection];
+            for (int c = 0; c < 3; ++c)
+                generateCurve(preset.curves[c], curves[c]);
+            selectedPresetIndex = -1;
+            selectedStandardPresetIndex = selection;
+            activePresetName = "";
+            onModificationEnded();
+        }
+        else if (selection > numStandardPresets)
+        {
+            int savedIndex = selection - numStandardPresets - 1;
+            if (savedIndex >= 0 && savedIndex < savedPresetNames.size())
+            {
+                // Load the preset data but manually restore curves instead of calling
+                // setExtraStateTree which would reset selection state
+                juce::ValueTree presetData = presetManager.loadPreset(
+                    ControllerPresetManager::ModuleType::FunctionGenerator,
+                    savedPresetNames[savedIndex]);
+
+                // Restore curves directly from the loaded preset
+                if (presetData.isValid())
+                {
+                    for (int c = 0; c < (int)curves.size(); ++c)
+                    {
+                        auto points = presetData.getChildWithName("CurvePoints_" + juce::String(c));
+                        if (points.isValid())
+                        {
+                            for (int i = 0; i < CURVE_RESOLUTION; ++i)
+                                curves[c][i] =
+                                    (float)points.getProperty("p" + juce::String(i), 0.0);
+                        }
+                    }
+                }
+
+                // Update selection state AFTER loading curves
+                selectedPresetIndex = savedIndex;
+                selectedStandardPresetIndex = -1;
+                activePresetName = savedPresetNames[savedIndex];
+                onModificationEnded();
+            }
+        }
+    };
+
+    ThemeText("PRESETS", theme.text.section_header);
+    ImGui::SetNextItemWidth(itemWidth * 0.5f);
+    if (ImGui::Combo("##FuncGenPreset", &comboSelection, comboItems.data(), (int)comboItems.size()))
+        applyPresetSelection(comboSelection);
+
+    // Scroll-edit support for preset combo
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+    {
+        const float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f)
+        {
+            const int maxIndex = (int)comboItems.size() - 1;
+            const int delta = wheel > 0.0f ? -1 : 1;
+            int       newSelection = juce::jlimit(0, maxIndex, comboSelection + delta);
+            if (newSelection == numStandardPresets)
+                newSelection = wheel > 0.0f ? numStandardPresets - 1 : numStandardPresets + 1;
+            newSelection = juce::jlimit(0, maxIndex, newSelection);
+            if (newSelection != comboSelection)
+                applyPresetSelection(newSelection);
+        }
+    }
+
+    ImGui::SameLine(0, 4.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.3f, 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.8f, 0.4f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    if (ImGui::Button("Save##funcgenpreset"))
+        ImGui::OpenPopup("Save FuncGen Preset");
+    ImGui::PopStyleColor(3);
+
+    if (selectedPresetIndex >= 0 && selectedPresetIndex < savedPresetNames.size())
+    {
+        ImGui::SameLine(0, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 0.8f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0.3f, 0.3f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        if (ImGui::Button("Delete##funcgenpreset"))
+        {
+            presetManager.deletePreset(
+                ControllerPresetManager::ModuleType::FunctionGenerator,
+                savedPresetNames[selectedPresetIndex]);
+            selectedPresetIndex = -1;
+            activePresetName = "";
+        }
+        ImGui::PopStyleColor(3);
+    }
+
+    if (ImGui::BeginPopup("Save FuncGen Preset"))
+    {
+        ImGui::InputText("Preset Name", presetNameBuffer, sizeof(presetNameBuffer));
+        if (ImGui::Button("Save New##confirm"))
+        {
+            juce::String name(presetNameBuffer);
+            if (name.isNotEmpty())
+            {
+                presetManager.savePreset(
+                    ControllerPresetManager::ModuleType::FunctionGenerator,
+                    name,
+                    getExtraStateTree());
+                activePresetName = name;
+                const auto& updatedNames = presetManager.getPresetNamesFor(
+                    ControllerPresetManager::ModuleType::FunctionGenerator);
+                selectedPresetIndex = updatedNames.indexOf(activePresetName);
+                memset(presetNameBuffer, 0, sizeof(presetNameBuffer));
+                ImGui::CloseCurrentPopup();
+                onModificationEnded();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##funcgenpreset"))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::Spacing();
 
     // === SECTION: Timing ===
     ThemeText("TIMING", theme.text.section_header);
-    
+
     bool sync = apvts.getRawParameterValue(paramIdMode)->load() > 0.5f;
     if (ImGui::Checkbox("Sync to Transport", &sync))
     {
@@ -360,143 +686,289 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
             *p = sync ? 1 : 0;
         onModificationEnded();
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lock function playback to host tempo");
-    
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Lock function playback to host tempo");
+
     if (sync)
     {
-        ImGui::BeginDisabled();
-        ImGui::TextUnformatted("Division: 1/4 Note (fixed)");
-        ImGui::EndDisabled();
+        // Check if global division is active (Tempo Clock override)
+        int globalDiv =
+            getParent() ? getParent()->getTransportState().globalDivisionIndex.load() : -1;
+        bool isGlobalDivisionActive = globalDiv >= 0;
+        int  division = isGlobalDivisionActive
+                            ? globalDiv
+                            : (int)apvts.getRawParameterValue("rate_division")->load();
+
+        // Grey out if controlled by Tempo Clock
+        if (isGlobalDivisionActive)
+            ImGui::BeginDisabled();
+
+        if (ImGui::Combo(
+                "Division",
+                &division,
+                "1/32\0"
+                "1/16\0"
+                "1/8\0"
+                "1/4\0"
+                "1/2\0"
+                "1\0"
+                "2\0"
+                "4\0"
+                "8\0\0"))
+        {
+            if (!isGlobalDivisionActive)
+            {
+                if (auto* p =
+                        dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter("rate_division")))
+                    *p = division;
+                onModificationEnded();
+            }
+        }
+
+        if (isGlobalDivisionActive)
+        {
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Division is controlled by Tempo Clock");
+        }
+        else
+        {
+            // Scroll wheel support for Division combo (per SCROLL_EDIT_REGRESSION_GUIDE.md)
+            if (ImGui::IsItemHovered())
+            {
+                const float wheel = ImGui::GetIO().MouseWheel;
+                if (wheel != 0.0f)
+                {
+                    // Scroll down advances (increment), scroll up goes back (decrement)
+                    const int newDivision = juce::jlimit(0, 8, division + (wheel > 0.0f ? -1 : 1));
+                    if (newDivision != division)
+                    {
+                        if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(
+                                ap.getParameter("rate_division")))
+                            *p = newDivision;
+                        onModificationEnded();
+                    }
+                }
+            }
+        }
     }
     else
     {
         const bool rateIsMod = isParamModulated(paramIdRateMod);
-        float rate = rateIsMod ? getLiveParamValueFor(paramIdRateMod, "rate_live", rateParam->load()) : rateParam->load();
-        
+        float      rate = rateIsMod
+                              ? getLiveParamValueFor(paramIdRateMod, "rate_live", rateParam->load())
+                              : rateParam->load();
+
         // Inline pin for Rate Mod (Channel 3)
         if (pinHelpers && pinHelpers->drawInlineInputPin)
         {
             if (pinHelpers->drawInlineInputPin(3))
                 ImGui::SameLine();
         }
-        
-        if (rateIsMod) ImGui::BeginDisabled();
-        if (ImGui::SliderFloat("Rate", &rate, 0.1f, 100.0f, "%.2f Hz", ImGuiSliderFlags_Logarithmic)) {
-            if (!rateIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdRate)) = rate;
+
+        if (rateIsMod)
+            ImGui::BeginDisabled();
+        if (ImGui::SliderFloat(
+                "Rate", &rate, 0.1f, 100.0f, "%.2f Hz", ImGuiSliderFlags_Logarithmic))
+        {
+            if (!rateIsMod)
+                *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdRate)) = rate;
         }
-        if (!rateIsMod) adjustParamOnWheel(ap.getParameter(paramIdRate), "rate", rate);
-        if (ImGui::IsItemDeactivatedAfterEdit() && !rateIsMod) onModificationEnded();
-        if (rateIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Function generation rate");
+        if (!rateIsMod)
+            adjustParamOnWheel(ap.getParameter(paramIdRate), "rate", rate);
+        if (ImGui::IsItemDeactivatedAfterEdit() && !rateIsMod)
+            onModificationEnded();
+        if (rateIsMod)
+        {
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ThemeText("(mod)", theme.text.active);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Function generation rate");
     }
-    
+
     bool loop = loopParam->load() > 0.5f;
-    if (ImGui::Checkbox("Loop", &loop)) {
+    if (ImGui::Checkbox("Loop", &loop))
+    {
         *dynamic_cast<juce::AudioParameterBool*>(ap.getParameter(paramIdLoop)) = loop;
         onModificationEnded();
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Restart function when it reaches the end");
-    
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Restart function when it reaches the end");
+
     const bool slewIsMod = isParamModulated(paramIdSlewMod);
-    float slew = slewIsMod ? getLiveParamValueFor(paramIdSlewMod, "slew_live", slewParam->load()) : slewParam->load();
-    
+    float slew = slewIsMod ? getLiveParamValueFor(paramIdSlewMod, "slew_live", slewParam->load())
+                           : slewParam->load();
+
     // Inline pin for Slew Mod (Channel 4)
     if (pinHelpers && pinHelpers->drawInlineInputPin)
     {
         if (pinHelpers->drawInlineInputPin(4))
             ImGui::SameLine();
     }
-    
-    if (slewIsMod) ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Slew", &slew, 0.0f, 1.0f, "%.3f")) {
-        if (!slewIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdSlew)) = slew;
+
+    if (slewIsMod)
+        ImGui::BeginDisabled();
+    if (ImGui::SliderFloat("Slew", &slew, 0.0f, 1.0f, "%.3f"))
+    {
+        if (!slewIsMod)
+            *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdSlew)) = slew;
     }
-    if (!slewIsMod) adjustParamOnWheel(ap.getParameter(paramIdSlew), "slew", slew);
-    if (ImGui::IsItemDeactivatedAfterEdit() && !slewIsMod) onModificationEnded();
-    if (slewIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Smoothness of output transitions");
-    
+    if (!slewIsMod)
+        adjustParamOnWheel(ap.getParameter(paramIdSlew), "slew", slew);
+    if (ImGui::IsItemDeactivatedAfterEdit() && !slewIsMod)
+        onModificationEnded();
+    if (slewIsMod)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Smoothness of output transitions");
+
     ImGui::Spacing();
     ImGui::Spacing();
-    
+
     // === SECTION: Function Parameters ===
     ThemeText("FUNCTION PARAMETERS", theme.text.section_header);
 
     const bool gateThreshIsMod = isParamModulated(paramIdGateThreshMod);
-    float gateThresh = gateThreshIsMod ? getLiveParamValueFor(paramIdGateThreshMod, "gateThresh_live", gateThreshParam->load()) : gateThreshParam->load();
-    
+    float      gateThresh =
+        gateThreshIsMod
+                 ? getLiveParamValueFor(paramIdGateThreshMod, "gateThresh_live", gateThreshParam->load())
+                 : gateThreshParam->load();
+
     // Inline pin for Gate Thresh Mod (Channel 5)
     if (pinHelpers && pinHelpers->drawInlineInputPin)
     {
         if (pinHelpers->drawInlineInputPin(5))
             ImGui::SameLine();
     }
-    
-    if (gateThreshIsMod) ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Gate Thr", &gateThresh, 0.0f, 1.0f, "%.2f")) {
-        if (!gateThreshIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdGateThresh)) = gateThresh;
+
+    if (gateThreshIsMod)
+        ImGui::BeginDisabled();
+    if (ImGui::SliderFloat("Gate Thr", &gateThresh, 0.0f, 1.0f, "%.2f"))
+    {
+        if (!gateThreshIsMod)
+            *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdGateThresh)) =
+                gateThresh;
     }
-    if (!gateThreshIsMod) adjustParamOnWheel(ap.getParameter(paramIdGateThresh), "gateThresh", gateThresh);
-    if (ImGui::IsItemDeactivatedAfterEdit() && !gateThreshIsMod) onModificationEnded();
-    if (gateThreshIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Threshold for gate output generation");
+    if (!gateThreshIsMod)
+        adjustParamOnWheel(ap.getParameter(paramIdGateThresh), "gateThresh", gateThresh);
+    if (ImGui::IsItemDeactivatedAfterEdit() && !gateThreshIsMod)
+        onModificationEnded();
+    if (gateThreshIsMod)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Threshold for gate output generation");
 
     const bool trigThreshIsMod = isParamModulated(paramIdTrigThreshMod);
-    float trigThresh = trigThreshIsMod ? getLiveParamValueFor(paramIdTrigThreshMod, "trigThresh_live", trigThreshParam->load()) : trigThreshParam->load();
-    
+    float      trigThresh =
+        trigThreshIsMod
+                 ? getLiveParamValueFor(paramIdTrigThreshMod, "trigThresh_live", trigThreshParam->load())
+                 : trigThreshParam->load();
+
     // Inline pin for Trig Thresh Mod (Channel 6)
     if (pinHelpers && pinHelpers->drawInlineInputPin)
     {
         if (pinHelpers->drawInlineInputPin(6))
             ImGui::SameLine();
     }
-    
-    if (trigThreshIsMod) ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Trig Thr", &trigThresh, 0.0f, 1.0f, "%.2f")) {
-        if (!trigThreshIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdTrigThresh)) = trigThresh;
+
+    if (trigThreshIsMod)
+        ImGui::BeginDisabled();
+    if (ImGui::SliderFloat("Trig Thr", &trigThresh, 0.0f, 1.0f, "%.2f"))
+    {
+        if (!trigThreshIsMod)
+            *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdTrigThresh)) =
+                trigThresh;
     }
-    if (!trigThreshIsMod) adjustParamOnWheel(ap.getParameter(paramIdTrigThresh), "trigThresh", trigThresh);
-    if (ImGui::IsItemDeactivatedAfterEdit() && !trigThreshIsMod) onModificationEnded();
-    if (trigThreshIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Threshold for trigger output generation");
+    if (!trigThreshIsMod)
+        adjustParamOnWheel(ap.getParameter(paramIdTrigThresh), "trigThresh", trigThresh);
+    if (ImGui::IsItemDeactivatedAfterEdit() && !trigThreshIsMod)
+        onModificationEnded();
+    if (trigThreshIsMod)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Threshold for trigger output generation");
 
     const bool pitchBaseIsMod = isParamModulated(paramIdPitchBaseMod);
-    float pitchBase = pitchBaseIsMod ? getLiveParamValueFor(paramIdPitchBaseMod, "pitchBase_live", pitchBaseParam->load()) : pitchBaseParam->load();
-    
+    float      pitchBase =
+        pitchBaseIsMod
+                 ? getLiveParamValueFor(paramIdPitchBaseMod, "pitchBase_live", pitchBaseParam->load())
+                 : pitchBaseParam->load();
+
     // Inline pin for Pitch Base Mod (Channel 7)
     if (pinHelpers && pinHelpers->drawInlineInputPin)
     {
         if (pinHelpers->drawInlineInputPin(7))
             ImGui::SameLine();
     }
-    
-    if (pitchBaseIsMod) ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Pitch Base", &pitchBase, -24.0f, 24.0f, "%.1f st")) {
-        if (!pitchBaseIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdPitchBase)) = pitchBase;
+
+    if (pitchBaseIsMod)
+        ImGui::BeginDisabled();
+    if (ImGui::SliderFloat("Pitch Base", &pitchBase, -24.0f, 24.0f, "%.1f st"))
+    {
+        if (!pitchBaseIsMod)
+            *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdPitchBase)) =
+                pitchBase;
     }
-    if (!pitchBaseIsMod) adjustParamOnWheel(ap.getParameter(paramIdPitchBase), "pitchBase", pitchBase);
-    if (ImGui::IsItemDeactivatedAfterEdit() && !pitchBaseIsMod) onModificationEnded();
-    if (pitchBaseIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Base pitch offset in semitones");
+    if (!pitchBaseIsMod)
+        adjustParamOnWheel(ap.getParameter(paramIdPitchBase), "pitchBase", pitchBase);
+    if (ImGui::IsItemDeactivatedAfterEdit() && !pitchBaseIsMod)
+        onModificationEnded();
+    if (pitchBaseIsMod)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Base pitch offset in semitones");
 
     const bool valueMultIsMod = isParamModulated(paramIdValueMultMod);
-    float valueMult = valueMultIsMod ? getLiveParamValueFor(paramIdValueMultMod, "valueMult_live", valueMultParam->load()) : valueMultParam->load();
-    
+    float      valueMult =
+        valueMultIsMod
+                 ? getLiveParamValueFor(paramIdValueMultMod, "valueMult_live", valueMultParam->load())
+                 : valueMultParam->load();
+
     // Inline pin for Value Mult Mod (Channel 8)
     if (pinHelpers && pinHelpers->drawInlineInputPin)
     {
         if (pinHelpers->drawInlineInputPin(8))
             ImGui::SameLine();
     }
-    
-    if (valueMultIsMod) ImGui::BeginDisabled();
-    if (ImGui::SliderFloat("Value Mult", &valueMult, 0.0f, 10.0f, "%.2f")) {
-        if (!valueMultIsMod) *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdValueMult)) = valueMult;
+
+    if (valueMultIsMod)
+        ImGui::BeginDisabled();
+    if (ImGui::SliderFloat("Value Mult", &valueMult, 0.0f, 10.0f, "%.2f"))
+    {
+        if (!valueMultIsMod)
+            *dynamic_cast<juce::AudioParameterFloat*>(ap.getParameter(paramIdValueMult)) =
+                valueMult;
     }
-    if (!valueMultIsMod) adjustParamOnWheel(ap.getParameter(paramIdValueMult), "valueMult", valueMult);
-    if (ImGui::IsItemDeactivatedAfterEdit() && !valueMultIsMod) onModificationEnded();
-    if (valueMultIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Multiplier for output value range");
+    if (!valueMultIsMod)
+        adjustParamOnWheel(ap.getParameter(paramIdValueMult), "valueMult", valueMult);
+    if (ImGui::IsItemDeactivatedAfterEdit() && !valueMultIsMod)
+        onModificationEnded();
+    if (valueMultIsMod)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Multiplier for output value range");
 
     ImGui::Spacing();
     ImGui::Spacing();
@@ -504,97 +976,161 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
     // === SECTION: Curve Editor ===
     ThemeText("CURVE EDITOR", theme.text.section_header);
 
-    int activeEditorCurve = static_cast<int>(curveSelectParam->load());
+    int        activeEditorCurve = static_cast<int>(curveSelectParam->load());
     const bool curveSelectIsMod = isParamInputConnected(paramIdCurveSelectMod);
-    if (curveSelectIsMod) {
-        activeEditorCurve = static_cast<int>(getLiveParamValueFor(paramIdCurveSelectMod, "curveSelect_live", (float)activeEditorCurve));
+    if (curveSelectIsMod)
+    {
+        activeEditorCurve = static_cast<int>(getLiveParamValueFor(
+            paramIdCurveSelectMod, "curveSelect_live", (float)activeEditorCurve));
     }
-    
+
     // Inline pin for Curve Select Mod (Channel 9)
     if (pinHelpers && pinHelpers->drawInlineInputPin)
     {
         if (pinHelpers->drawInlineInputPin(9))
             ImGui::SameLine();
     }
-    
-    if (curveSelectIsMod) ImGui::BeginDisabled();
-    if (ImGui::Button("Blue")) { if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect))) *p = 0; onModificationEnded(); }
+
+    if (curveSelectIsMod)
+        ImGui::BeginDisabled();
+    if (ImGui::Button("Blue"))
+    {
+        if (auto* p =
+                dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect)))
+            *p = 0;
+        onModificationEnded();
+    }
     ImGui::SameLine();
-    if (ImGui::Button("Red")) { if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect))) *p = 1; onModificationEnded(); }
+    if (ImGui::Button("Red"))
+    {
+        if (auto* p =
+                dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect)))
+            *p = 1;
+        onModificationEnded();
+    }
     ImGui::SameLine();
-    if (ImGui::Button("Green")) { if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect))) *p = 2; onModificationEnded(); }
-    if (curveSelectIsMod) { ImGui::EndDisabled(); ImGui::SameLine(); ThemeText("(mod)", theme.text.active); }
-    
+    if (ImGui::Button("Green"))
+    {
+        if (auto* p =
+                dynamic_cast<juce::AudioParameterChoice*>(ap.getParameter(paramIdCurveSelect)))
+            *p = 2;
+        onModificationEnded();
+    }
+    if (curveSelectIsMod)
+    {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ThemeText("(mod)", theme.text.active);
+    }
+
     // Canvas Setup
     ImGui::Dummy(ImVec2(0.0f, 5.0f));
-    const float canvasHeight = 150.0f;
-    const ImVec2 graphSize(itemWidth, canvasHeight);
-    const ImGuiWindowFlags childFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-    
+    const float            canvasHeight = 150.0f;
+    const ImVec2           graphSize(itemWidth, canvasHeight);
+    const ImGuiWindowFlags childFlags =
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+
     ImGui::PushID(this); // Unique ID for this node's UI
-    
+
     // Read visualization data (thread-safe) - BEFORE BeginChild
     // Note: phase is a non-atomic member variable - reading it is a data race,
     // but necessary for visualization. For production, this should be atomic.
     const double currentPhase = phase;
-    
+
     if (ImGui::BeginChild("FunctionGenCanvas", graphSize, false, childFlags))
     {
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        ImDrawList*  draw_list = ImGui::GetWindowDrawList();
         const ImVec2 canvas_p0 = ImGui::GetWindowPos();
         const ImVec2 canvas_p1 = ImVec2(canvas_p0.x + graphSize.x, canvas_p0.y + graphSize.y);
-        draw_list->AddRectFilled(canvas_p0, canvas_p1, theme.canvas.canvas_background == 0 ? IM_COL32(30, 30, 30, 255) : theme.canvas.canvas_background);
-        draw_list->AddRect(canvas_p0, canvas_p1, theme.canvas.node_frame == 0 ? IM_COL32(150, 150, 150, 255) : theme.canvas.node_frame);
+        draw_list->AddRectFilled(
+            canvas_p0,
+            canvas_p1,
+            theme.canvas.canvas_background == 0 ? IM_COL32(30, 30, 30, 255)
+                                                : theme.canvas.canvas_background);
+        draw_list->AddRect(
+            canvas_p0,
+            canvas_p1,
+            theme.canvas.node_frame == 0 ? IM_COL32(150, 150, 150, 255) : theme.canvas.node_frame);
         draw_list->PushClipRect(canvas_p0, canvas_p1, true);
-        
+
         // Draw curves first
-        const ImU32 colors[] = { IM_COL32(100, 150, 255, 255), IM_COL32(255, 100, 100, 255), IM_COL32(100, 255, 150, 255) };
-        for (int c = 0; c < 3; ++c) {
+        const ImU32 colors[] = {
+            IM_COL32(100, 150, 255, 255),
+            IM_COL32(255, 100, 100, 255),
+            IM_COL32(100, 255, 150, 255)};
+        for (int c = 0; c < 3; ++c)
+        {
             ImU32 color = colors[c];
-            if (c != activeEditorCurve) color = (color & 0x00FFFFFF) | (100 << 24);
-            for (int i = 0; i < CURVE_RESOLUTION - 1; ++i) {
-                ImVec2 p1 = ImVec2(canvas_p0.x + ((float)i / (CURVE_RESOLUTION - 1)) * graphSize.x, canvas_p0.y + (1.0f - curves[c][i]) * graphSize.y);
-                ImVec2 p2 = ImVec2(canvas_p0.x + ((float)(i + 1) / (CURVE_RESOLUTION - 1)) * graphSize.x, canvas_p0.y + (1.0f - curves[c][i+1]) * graphSize.y);
+            if (c != activeEditorCurve)
+                color = (color & 0x00FFFFFF) | (100 << 24);
+            for (int i = 0; i < CURVE_RESOLUTION - 1; ++i)
+            {
+                ImVec2 p1 = ImVec2(
+                    canvas_p0.x + ((float)i / (CURVE_RESOLUTION - 1)) * graphSize.x,
+                    canvas_p0.y + (1.0f - curves[c][i]) * graphSize.y);
+                ImVec2 p2 = ImVec2(
+                    canvas_p0.x + ((float)(i + 1) / (CURVE_RESOLUTION - 1)) * graphSize.x,
+                    canvas_p0.y + (1.0f - curves[c][i + 1]) * graphSize.y);
                 draw_list->AddLine(p1, p2, color, 2.0f);
             }
         }
-        
+
         // Draw Gate Threshold line (Yellow)
         const float gate_line_y = canvas_p0.y + (1.0f - gateThresh) * graphSize.y;
-        draw_list->AddLine(ImVec2(canvas_p0.x, gate_line_y), ImVec2(canvas_p1.x, gate_line_y), IM_COL32(255, 255, 0, 200), 2.0f);
+        draw_list->AddLine(
+            ImVec2(canvas_p0.x, gate_line_y),
+            ImVec2(canvas_p1.x, gate_line_y),
+            IM_COL32(255, 255, 0, 200),
+            2.0f);
 
         // Draw Trigger Threshold line (Red)
         const float trig_line_y = canvas_p0.y + (1.0f - trigThresh) * graphSize.y;
-        draw_list->AddLine(ImVec2(canvas_p0.x, trig_line_y), ImVec2(canvas_p1.x, trig_line_y), IM_COL32(255, 0, 0, 200), 2.0f);
-        
+        draw_list->AddLine(
+            ImVec2(canvas_p0.x, trig_line_y),
+            ImVec2(canvas_p1.x, trig_line_y),
+            IM_COL32(255, 0, 0, 200),
+            2.0f);
+
         // Draw playhead
         float playhead_x = canvas_p0.x + static_cast<float>(currentPhase) * graphSize.x;
-        draw_list->AddLine(ImVec2(playhead_x, canvas_p0.y), ImVec2(playhead_x, canvas_p1.y), IM_COL32(255, 255, 0, 200));
-        
+        draw_list->AddLine(
+            ImVec2(playhead_x, canvas_p0.y),
+            ImVec2(playhead_x, canvas_p1.y),
+            IM_COL32(255, 255, 0, 200));
+
         draw_list->PopClipRect();
-        
+
         // Mouse interaction for drawing on the canvas - AFTER drawing to ensure proper layout
         ImGui::SetCursorPos(ImVec2(0, 0));
-        ImGui::InvisibleButton("##functionGenCanvasDrag", graphSize, ImGuiButtonFlags_MouseButtonLeft);
+        ImGui::InvisibleButton(
+            "##functionGenCanvasDrag", graphSize, ImGuiButtonFlags_MouseButtonLeft);
         const bool is_hovered = ImGui::IsItemHovered();
         const bool is_active = ImGui::IsItemActive();
-        if (is_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (is_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
             isDragging = true;
-            lastMousePosInCanvas = ImVec2(ImGui::GetIO().MousePos.x - canvas_p0.x, ImGui::GetIO().MousePos.y - canvas_p0.y);
+            lastMousePosInCanvas = ImVec2(
+                ImGui::GetIO().MousePos.x - canvas_p0.x, ImGui::GetIO().MousePos.y - canvas_p0.y);
         }
-        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-            if (isDragging) onModificationEnded();
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+        {
+            if (isDragging)
+                onModificationEnded();
             isDragging = false;
             lastMousePosInCanvas = ImVec2(-1, -1);
         }
-        if (isDragging && is_active) {
-            ImVec2 current_pos = ImVec2(ImGui::GetIO().MousePos.x - canvas_p0.x, ImGui::GetIO().MousePos.y - canvas_p0.y);
+        if (isDragging && is_active)
+        {
+            ImVec2 current_pos = ImVec2(
+                ImGui::GetIO().MousePos.x - canvas_p0.x, ImGui::GetIO().MousePos.y - canvas_p0.y);
             int idx0 = static_cast<int>((lastMousePosInCanvas.x / graphSize.x) * CURVE_RESOLUTION);
             int idx1 = static_cast<int>((current_pos.x / graphSize.x) * CURVE_RESOLUTION);
             idx0 = juce::jlimit(0, CURVE_RESOLUTION - 1, idx0);
             idx1 = juce::jlimit(0, CURVE_RESOLUTION - 1, idx1);
-            if (idx0 > idx1) std::swap(idx0, idx1);
-            for (int i = idx0; i <= idx1; ++i) {
+            if (idx0 > idx1)
+                std::swap(idx0, idx1);
+            for (int i = idx0; i <= idx1; ++i)
+            {
                 float t = (idx1 == idx0) ? 1.0f : (float)(i - idx0) / (float)(idx1 - idx0);
                 float y_pos = juce::jmap(t, lastMousePosInCanvas.y, current_pos.y);
                 curves[activeEditorCurve][i] = 1.0f - juce::jlimit(0.0f, 1.0f, y_pos / graphSize.y);
@@ -603,30 +1139,39 @@ void FunctionGeneratorModuleProcessor::drawParametersInNode(float itemWidth, con
         }
     }
     ImGui::EndChild();
-    
+
     ImGui::PopID(); // End visualization child window ID
-    
+
     ImGui::PopItemWidth();
     ImGui::PopID(); // End module instance ID
 }
-
-
 
 juce::String FunctionGeneratorModuleProcessor::getAudioInputLabel(int channel) const
 {
     switch (channel)
     {
-        case 0: return "Gate In";
-        case 1: return "Trigger In";
-        case 2: return "Sync In";
-        case 3: return "Rate Mod";
-        case 4: return "Slew Mod";
-        case 5: return "Gate Thresh Mod";
-        case 6: return "Trig Thresh Mod";
-        case 7: return "Pitch Base Mod";
-        case 8: return "Value Mult Mod";
-        case 9: return "Curve Select Mod";
-        default: return {};
+    case 0:
+        return "Gate In";
+    case 1:
+        return "Trigger In";
+    case 2:
+        return "Sync In";
+    case 3:
+        return "Rate Mod";
+    case 4:
+        return "Slew Mod";
+    case 5:
+        return "Gate Thresh Mod";
+    case 6:
+        return "Trig Thresh Mod";
+    case 7:
+        return "Pitch Base Mod";
+    case 8:
+        return "Value Mult Mod";
+    case 9:
+        return "Curve Select Mod";
+    default:
+        return {};
     }
 }
 
@@ -634,38 +1179,87 @@ juce::String FunctionGeneratorModuleProcessor::getAudioOutputLabel(int channel) 
 {
     switch (channel)
     {
-        case 0: return "Value";
-        case 1: return "Inverted";
-        case 2: return "Bipolar";
-        case 3: return "Pitch";
-        case 4: return "Gate";
-        case 5: return "Trigger";
-        case 6: return "End of Cycle";
-        case 7: return "Blue Value";
-        case 8: return "Blue Pitch";
-        case 9: return "Red Value";
-        case 10: return "Red Pitch";
-        case 11: return "Green Value";
-        case 12: return "Green Pitch";
-        default: return {};
+    case 0:
+        return "Value";
+    case 1:
+        return "Inverted";
+    case 2:
+        return "Bipolar";
+    case 3:
+        return "Pitch";
+    case 4:
+        return "Gate";
+    case 5:
+        return "Trigger";
+    case 6:
+        return "End of Cycle";
+    case 7:
+        return "Blue Value";
+    case 8:
+        return "Blue Pitch";
+    case 9:
+        return "Red Value";
+    case 10:
+        return "Red Pitch";
+    case 11:
+        return "Green Value";
+    case 12:
+        return "Green Pitch";
+    default:
+        return {};
     }
 }
 
 #endif
 
-bool FunctionGeneratorModuleProcessor::getParamRouting(const juce::String& paramId, int& outBusIndex, int& outChannelIndexInBus) const
+bool FunctionGeneratorModuleProcessor::getParamRouting(
+    const juce::String& paramId,
+    int&                outBusIndex,
+    int&                outChannelIndexInBus) const
 {
     outBusIndex = 0; // All modulation is on the single input bus
-    
-    if (paramId == paramIdGateIn) { outChannelIndexInBus = 0; return true; }
-    if (paramId == paramIdRateMod) { outChannelIndexInBus = 3; return true; }
-    if (paramId == paramIdSlewMod) { outChannelIndexInBus = 4; return true; }
-    if (paramId == paramIdGateThreshMod) { outChannelIndexInBus = 5; return true; }
-    if (paramId == paramIdTrigThreshMod) { outChannelIndexInBus = 6; return true; }
-    if (paramId == paramIdPitchBaseMod) { outChannelIndexInBus = 7; return true; }
-    if (paramId == paramIdValueMultMod) { outChannelIndexInBus = 8; return true; }
-    if (paramId == paramIdCurveSelectMod) { outChannelIndexInBus = 9; return true; }
-    
+
+    if (paramId == paramIdGateIn)
+    {
+        outChannelIndexInBus = 0;
+        return true;
+    }
+    if (paramId == paramIdRateMod)
+    {
+        outChannelIndexInBus = 3;
+        return true;
+    }
+    if (paramId == paramIdSlewMod)
+    {
+        outChannelIndexInBus = 4;
+        return true;
+    }
+    if (paramId == paramIdGateThreshMod)
+    {
+        outChannelIndexInBus = 5;
+        return true;
+    }
+    if (paramId == paramIdTrigThreshMod)
+    {
+        outChannelIndexInBus = 6;
+        return true;
+    }
+    if (paramId == paramIdPitchBaseMod)
+    {
+        outChannelIndexInBus = 7;
+        return true;
+    }
+    if (paramId == paramIdValueMultMod)
+    {
+        outChannelIndexInBus = 8;
+        return true;
+    }
+    if (paramId == paramIdCurveSelectMod)
+    {
+        outChannelIndexInBus = 9;
+        return true;
+    }
+
     return false;
 }
 
@@ -675,6 +1269,23 @@ juce::ValueTree FunctionGeneratorModuleProcessor::getExtraStateTree() const
     juce::ValueTree vt("FunctionGeneratorState");
     // Save the mode parameter
     vt.setProperty("mode", apvts.getRawParameterValue("mode")->load(), nullptr);
+    // Save the rate_division parameter
+    vt.setProperty("rate_division", apvts.getRawParameterValue("rate_division")->load(), nullptr);
+
+#if defined(PRESET_CREATOR_UI)
+    // Save preset management state
+    if (selectedPresetIndex >= 0)
+    {
+        auto&       presetManager = ControllerPresetManager::get();
+        const auto& presetNames =
+            presetManager.getPresetNamesFor(ControllerPresetManager::ModuleType::FunctionGenerator);
+        if (selectedPresetIndex < presetNames.size())
+            vt.setProperty("preset", presetNames[selectedPresetIndex], nullptr);
+    }
+    if (selectedStandardPresetIndex >= 0 && selectedStandardPresetIndex < 5)
+        vt.setProperty("selectedStandardPresetIndex", selectedStandardPresetIndex, nullptr);
+#endif
+
     // Save the curve points
     for (int c = 0; c < curves.size(); ++c)
     {
@@ -693,8 +1304,37 @@ void FunctionGeneratorModuleProcessor::setExtraStateTree(const juce::ValueTree& 
     if (vt.hasType("FunctionGeneratorState"))
     {
         // Restore the mode parameter
-        if (auto* p = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("mode")))
-            *p = (bool)vt.getProperty("mode", false);
+        if (auto* p = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("mode")))
+            *p = (int)vt.getProperty("mode", 0);
+        // Restore the rate_division parameter
+        if (auto* p =
+                dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("rate_division")))
+            *p = (int)vt.getProperty("rate_division", 3);
+
+#if defined(PRESET_CREATOR_UI)
+        // Restore preset management state
+        activePresetName = vt.getProperty("preset", "").toString();
+        selectedStandardPresetIndex = vt.getProperty("selectedStandardPresetIndex", 0);
+        if (selectedStandardPresetIndex < 0 || selectedStandardPresetIndex >= 5)
+            selectedStandardPresetIndex = 0;
+
+        if (activePresetName.isNotEmpty())
+        {
+            auto&       presetManager = ControllerPresetManager::get();
+            const auto& presetNames = presetManager.getPresetNamesFor(
+                ControllerPresetManager::ModuleType::FunctionGenerator);
+            selectedPresetIndex = presetNames.indexOf(activePresetName);
+            if (selectedPresetIndex >= 0)
+                selectedStandardPresetIndex = -1;
+            else
+                activePresetName = "";
+        }
+        else
+        {
+            selectedPresetIndex = -1;
+        }
+#endif
+
         // Restore the curve points
         for (int c = 0; c < curves.size(); ++c)
         {
@@ -714,28 +1354,28 @@ void FunctionGeneratorModuleProcessor::setExtraStateTree(const juce::ValueTree& 
 std::optional<RhythmInfo> FunctionGeneratorModuleProcessor::getRhythmInfo() const
 {
     RhythmInfo info;
-    
+
     // Build display name with logical ID
     info.displayName = "Function Gen #" + juce::String(getLogicalId());
     info.sourceType = "function_generator";
-    
+
     // Check if synced to transport
-    const int mode = modeParam ? static_cast<int>(modeParam->load()) : 0;
+    const int  mode = modeParam ? static_cast<int>(modeParam->load()) : 0;
     const bool syncEnabled = (mode == 1); // Mode 1 = "Sync"
     info.isSynced = syncEnabled;
-    
+
     // Read LIVE transport state from parent (not cached copy)
     TransportState transport;
-    bool hasTransport = false;
+    bool           hasTransport = false;
     if (getParent())
     {
         transport = getParent()->getTransportState();
         hasTransport = true;
     }
-    
+
     // Function Generator is always active when running
     info.isActive = true;
-    
+
     // Calculate effective BPM
     if (syncEnabled && hasTransport && transport.isPlaying)
     {
@@ -754,10 +1394,10 @@ std::optional<RhythmInfo> FunctionGeneratorModuleProcessor::getRhythmInfo() cons
         // Synced but transport stopped
         info.bpm = 0.0f;
     }
-    
+
     // Validate BPM before returning
     if (!std::isfinite(info.bpm))
         info.bpm = 0.0f;
-    
+
     return info;
 }

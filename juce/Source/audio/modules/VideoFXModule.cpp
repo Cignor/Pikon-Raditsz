@@ -195,6 +195,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout VideoFXModule::createParamet
         std::make_unique<juce::AudioParameterFloat>(
             "zoomBlurAmount", "Zoom Blur", 0.0f, 1.0f, 0.0f));
 
+    // === WET/DRY MIXERS ===
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "wetDryColor", "Color Wet/Dry", 0.0f, 1.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "wetDryFilters", "Filters Wet/Dry", 0.0f, 1.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "wetDryMoreFilters", "More Filters Wet/Dry", 0.0f, 1.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "wetDryAdvanced", "Advanced Wet/Dry", 0.0f, 1.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "wetDryNewEffects", "New Effects Wet/Dry", 0.0f, 1.0f, 1.0f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "wetDryDistortion", "Distortion Wet/Dry", 0.0f, 1.0f, 1.0f));
+
     return {params.begin(), params.end()};
 }
 
@@ -295,6 +315,19 @@ VideoFXModule::VideoFXModule()
     // === DISTORTION ===
     chromaAberrationParam = apvts.getRawParameterValue("chromaAberration");
     zoomBlurAmountParam = apvts.getRawParameterValue("zoomBlurAmount");
+
+    // === WET/DRY MIXERS ===
+    wetDryColorParam = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryColor"));
+    wetDryFiltersParam =
+        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryFilters"));
+    wetDryMoreFiltersParam =
+        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryMoreFilters"));
+    wetDryAdvancedParam =
+        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryAdvanced"));
+    wetDryNewEffectsParam =
+        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryNewEffects"));
+    wetDryDistortionParam =
+        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryDistortion"));
 }
 
 VideoFXModule::~VideoFXModule()
@@ -884,379 +917,600 @@ void VideoFXModule::run()
 
     while (!threadShouldExit())
     {
-        juce::uint32 sourceId = currentSourceId.load();
-        cv::Mat      prefetchedFrame;
-
-        if (sourceId == 0)
+        try
         {
-            if (cachedResolvedSourceId != 0)
+            juce::uint32 sourceId = currentSourceId.load();
+            cv::Mat      prefetchedFrame;
+
+            if (sourceId == 0)
             {
-                sourceId = cachedResolvedSourceId;
-            }
-            else if (parentSynth != nullptr)
-            {
-                auto snapshot = parentSynth->getConnectionSnapshot();
-                if (snapshot && !snapshot->empty())
+                if (cachedResolvedSourceId != 0)
                 {
-                    juce::uint32 myLogicalId = storedLogicalId;
-                    if (myLogicalId == 0)
+                    sourceId = cachedResolvedSourceId;
+                }
+                else if (parentSynth != nullptr)
+                {
+                    auto snapshot = parentSynth->getConnectionSnapshot();
+                    if (snapshot && !snapshot->empty())
+                    {
+                        juce::uint32 myLogicalId = storedLogicalId;
+                        if (myLogicalId == 0)
+                        {
+                            for (const auto& info : parentSynth->getModulesInfo())
+                            {
+                                if (parentSynth->getModuleForLogical(info.first) == this)
+                                {
+                                    myLogicalId = info.first;
+                                    storedLogicalId = myLogicalId;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (myLogicalId != 0)
+                        {
+                            for (const auto& conn : *snapshot)
+                            {
+                                if (conn.dstLogicalId == myLogicalId && conn.dstChan == 0)
+                                {
+                                    sourceId = conn.srcLogicalId;
+                                    cachedResolvedSourceId = sourceId;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (sourceId == 0)
                     {
                         for (const auto& info : parentSynth->getModulesInfo())
                         {
-                            if (parentSynth->getModuleForLogical(info.first) == this)
+                            juce::String moduleType = info.second.toLowerCase();
+                            if (moduleType.contains("video") || moduleType.contains("webcam") ||
+                                moduleType == "video_file_loader")
                             {
-                                myLogicalId = info.first;
-                                storedLogicalId = myLogicalId;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (myLogicalId != 0)
-                    {
-                        for (const auto& conn : *snapshot)
-                        {
-                            if (conn.dstLogicalId == myLogicalId && conn.dstChan == 0)
-                            {
-                                sourceId = conn.srcLogicalId;
-                                cachedResolvedSourceId = sourceId;
-                                break;
+                                cv::Mat testFrame =
+                                    VideoFrameManager::getInstance().getFrame(info.first);
+                                if (!testFrame.empty())
+                                {
+                                    sourceId = info.first;
+                                    cachedResolvedSourceId = sourceId;
+                                    prefetchedFrame = testFrame;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-
-                if (sourceId == 0)
-                {
-                    for (const auto& info : parentSynth->getModulesInfo())
-                    {
-                        juce::String moduleType = info.second.toLowerCase();
-                        if (moduleType.contains("video") || moduleType.contains("webcam") ||
-                            moduleType == "video_file_loader")
-                        {
-                            cv::Mat testFrame =
-                                VideoFrameManager::getInstance().getFrame(info.first);
-                            if (!testFrame.empty())
-                            {
-                                sourceId = info.first;
-                                cachedResolvedSourceId = sourceId;
-                                prefetchedFrame = testFrame;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        else
-        {
-            if (cachedResolvedSourceId != 0 && cachedResolvedSourceId != sourceId)
-                cachedResolvedSourceId = 0;
-        }
-
-        // --- 1. Get all parameter values first (to decide GPU vs CPU) ---
-        float brightness = brightnessParam ? brightnessParam->load() : 0.0f;
-        float contrast = contrastParam ? contrastParam->load() : 1.0f;
-        float saturation = saturationParam ? saturationParam->load() : 1.0f;
-        float hueShift = hueShiftParam ? hueShiftParam->load() : 0.0f;
-        float gainR = gainRedParam ? gainRedParam->load() : 1.0f;
-        float gainG = gainGreenParam ? gainGreenParam->load() : 1.0f;
-        float gainB = gainBlueParam ? gainBlueParam->load() : 1.0f;
-        bool  sepia = sepiaParam ? sepiaParam->get() : false;
-        float temperature = temperatureParam ? temperatureParam->load() : 0.0f;
-        float sharpen = sharpenParam ? sharpenParam->load() : 0.0f;
-        float blur = blurParam ? blurParam->load() : 0.0f;
-        bool  grayscale = grayscaleParam ? grayscaleParam->get() : false;
-        bool  invert = invertParam ? invertParam->get() : false;
-        bool  flipH = flipHorizontalParam ? flipHorizontalParam->get() : false;
-        bool  flipV = flipVerticalParam ? flipVerticalParam->get() : false;
-        bool  thresholdEnable = thresholdEnableParam ? thresholdEnableParam->get() : false;
-        float thresholdLevel = thresholdLevelParam ? thresholdLevelParam->load() : 127.0f;
-        int   posterizeLevels = posterizeLevelsParam ? posterizeLevelsParam->get() : 16;
-        float vignetteAmount = vignetteAmountParam ? vignetteAmountParam->load() : 0.0f;
-        float vignetteSize = vignetteSizeParam ? vignetteSizeParam->load() : 0.5f;
-        int   pixelateSize = pixelateBlockSizeParam ? pixelateBlockSizeParam->get() : 1;
-        bool  cannyEnable = cannyEnableParam ? cannyEnableParam->get() : false;
-        float cannyThresh1 = cannyThresh1Param ? cannyThresh1Param->load() : 50.0f;
-        float cannyThresh2 = cannyThresh2Param ? cannyThresh2Param->load() : 150.0f;
-        int   kaleidoscopeMode = kaleidoscopeModeParam ? kaleidoscopeModeParam->getIndex() : 0;
-
-        // === NEW PARAMETERS ===
-        float wetDryMix = wetDryMixParam ? wetDryMixParam->load() : 1.0f;
-        float gamma = gammaParam ? gammaParam->load() : 1.0f;
-        float levelsBlack = levelsBlackParam ? levelsBlackParam->load() : 0.0f;
-        float levelsWhite = levelsWhiteParam ? levelsWhiteParam->load() : 255.0f;
-        float levelsGamma = levelsGammaParam ? levelsGammaParam->load() : 1.0f;
-        bool  channelMixerEnable = channelMixerEnableParam ? channelMixerEnableParam->get() : false;
-        float mixRR = mixRRParam ? mixRRParam->load() : 1.0f;
-        float mixRG = mixRGParam ? mixRGParam->load() : 0.0f;
-        float mixRB = mixRBParam ? mixRBParam->load() : 0.0f;
-        float mixGR = mixGRParam ? mixGRParam->load() : 0.0f;
-        float mixGG = mixGGParam ? mixGGParam->load() : 1.0f;
-        float mixGB = mixGBParam ? mixGBParam->load() : 0.0f;
-        float mixBR = mixBRParam ? mixBRParam->load() : 0.0f;
-        float mixBG = mixBGParam ? mixBGParam->load() : 0.0f;
-        float mixBB = mixBBParam ? mixBBParam->load() : 1.0f;
-        float blendColorAmount = blendColorAmountParam ? blendColorAmountParam->load() : 0.0f;
-        float blendColorR = blendColorRParam ? blendColorRParam->load() : 1.0f;
-        float blendColorG = blendColorGParam ? blendColorGParam->load() : 0.0f;
-        float blendColorB = blendColorBParam ? blendColorBParam->load() : 0.0f;
-        int   blendMode = blendModeParam ? blendModeParam->getIndex() : 0;
-        bool  emboss = embossParam ? embossParam->get() : false;
-        float embossStrength = embossStrengthParam ? embossStrengthParam->load() : 1.0f;
-        float noiseAmount = noiseAmountParam ? noiseAmountParam->load() : 0.0f;
-        bool  solarize = solarizeParam ? solarizeParam->get() : false;
-        float solarizeThreshold = solarizeThresholdParam ? solarizeThresholdParam->load() : 128.0f;
-        int   mirrorMode = mirrorModeParam ? mirrorModeParam->getIndex() : 0;
-        int   rotationMode = rotationModeParam ? rotationModeParam->getIndex() : 0;
-        float edgeGlowAmount = edgeGlowAmountParam ? edgeGlowAmountParam->load() : 0.0f;
-        float edgeGlowR = edgeGlowRParam ? edgeGlowRParam->load() : 0.0f;
-        float edgeGlowG = edgeGlowGParam ? edgeGlowGParam->load() : 1.0f;
-        float edgeGlowB = edgeGlowBParam ? edgeGlowBParam->load() : 1.0f;
-        float scanlineAmount = scanlineAmountParam ? scanlineAmountParam->load() : 0.0f;
-        int   scanlineSpacing = scanlineSpacingParam ? scanlineSpacingParam->get() : 2;
-        bool  ditherEnable = ditherEnableParam ? ditherEnableParam->get() : false;
-        int   ditherLevels = ditherLevelsParam ? ditherLevelsParam->get() : 4;
-        float chromaAberration = chromaAberrationParam ? chromaAberrationParam->load() : 0.0f;
-        float zoomBlurAmount = zoomBlurAmountParam ? zoomBlurAmountParam->load() : 0.0f;
-
-        const bool useGpu = useGpuParam ? useGpuParam->get() : false;
-#if defined(WITH_CUDA_SUPPORT)
-        const bool gpuAvailable = CudaDeviceCountCache::isAvailable();
-#else
-        const bool gpuAvailable = false;
-#endif
-
-        // Force CPU path when Canny is enabled to avoid hybrid GPU/CPU stalls
-        bool runOnGpu = (useGpu && gpuAvailable && !cannyEnable);
-
-        cv::Mat frame;
-        bool    gpuInputReady = false;
-
-        if (runOnGpu)
-        {
-#if defined(WITH_CUDA_SUPPORT)
-            // Try to fetch GPU frame first
-            if (sourceId != 0)
-            {
-                cv::cuda::GpuMat gFrame = VideoFrameManager::getInstance().getGpuFrame(sourceId);
-                if (!gFrame.empty())
-                {
-                    gpuFrame = gFrame; // Use the reference or copy? GpuMat is ref-counted.
-                    // But we need a writable copy if we modify it in place?
-                    // The apply functions function in-place usually or take src/dst.
-                    // Let's ensure we work on a copy if we want to preserve input (though we are
-                    // consumimg it). Actually VideoFX usually acts as a filter. We should clone if
-                    // we don't own it. But GpuMat clone is deep copy. We can just rely on the fact
-                    // that we output to a NEW gpuFrame or modify in place if safe. But we set
-                    // `gpuFrame` to it.
-                    gpuInputReady = true;
-                }
-            }
-#endif
-        }
-
-        if (!gpuInputReady)
-        {
-            // CPU Fetch Fallback
-            frame = prefetchedFrame.empty() ? VideoFrameManager::getInstance().getFrame(sourceId)
-                                            : prefetchedFrame;
-
-            if (!frame.empty())
-            {
-                const juce::ScopedLock lk(frameLock);
-                frame.copyTo(lastFrameBgr);
             }
             else
             {
-                const juce::ScopedLock lk(frameLock);
-                if (!lastFrameBgr.empty())
-                    frame = lastFrameBgr.clone();
+                if (cachedResolvedSourceId != 0 && cachedResolvedSourceId != sourceId)
+                    cachedResolvedSourceId = 0;
             }
-        }
 
-        // If both failed
-        if (!gpuInputReady && frame.empty())
-        {
-            wait(33);
-            continue;
-        }
+            // --- 1. Get all parameter values first (to decide GPU vs CPU) ---
+            float brightness = brightnessParam ? brightnessParam->load() : 0.0f;
+            float contrast = contrastParam ? contrastParam->load() : 1.0f;
+            float saturation = saturationParam ? saturationParam->load() : 1.0f;
+            float hueShift = hueShiftParam ? hueShiftParam->load() : 0.0f;
+            float gainR = gainRedParam ? gainRedParam->load() : 1.0f;
+            float gainG = gainGreenParam ? gainGreenParam->load() : 1.0f;
+            float gainB = gainBlueParam ? gainBlueParam->load() : 1.0f;
+            bool  sepia = sepiaParam ? sepiaParam->get() : false;
+            float temperature = temperatureParam ? temperatureParam->load() : 0.0f;
+            float sharpen = sharpenParam ? sharpenParam->load() : 0.0f;
+            float blur = blurParam ? blurParam->load() : 0.0f;
+            bool  grayscale = grayscaleParam ? grayscaleParam->get() : false;
+            bool  invert = invertParam ? invertParam->get() : false;
+            bool  flipH = flipHorizontalParam ? flipHorizontalParam->get() : false;
+            bool  flipV = flipVerticalParam ? flipVerticalParam->get() : false;
+            bool  thresholdEnable = thresholdEnableParam ? thresholdEnableParam->get() : false;
+            float thresholdLevel = thresholdLevelParam ? thresholdLevelParam->load() : 127.0f;
+            int   posterizeLevels = posterizeLevelsParam ? posterizeLevelsParam->get() : 16;
+            float vignetteAmount = vignetteAmountParam ? vignetteAmountParam->load() : 0.0f;
+            float vignetteSize = vignetteSizeParam ? vignetteSizeParam->load() : 0.5f;
+            int   pixelateSize = pixelateBlockSizeParam ? pixelateBlockSizeParam->get() : 1;
+            bool  cannyEnable = cannyEnableParam ? cannyEnableParam->get() : false;
+            float cannyThresh1 = cannyThresh1Param ? cannyThresh1Param->load() : 50.0f;
+            float cannyThresh2 = cannyThresh2Param ? cannyThresh2Param->load() : 150.0f;
+            int   kaleidoscopeMode = kaleidoscopeModeParam ? kaleidoscopeModeParam->getIndex() : 0;
 
-        // Monitor start time
-        auto startTime = juce::Time::getMillisecondCounterHiRes();
+            // === NEW PARAMETERS ===
+            float wetDryMix = wetDryMixParam ? wetDryMixParam->load() : 1.0f;
+            float gamma = gammaParam ? gammaParam->load() : 1.0f;
+            float levelsBlack = levelsBlackParam ? levelsBlackParam->load() : 0.0f;
+            float levelsWhite = levelsWhiteParam ? levelsWhiteParam->load() : 255.0f;
+            float levelsGamma = levelsGammaParam ? levelsGammaParam->load() : 1.0f;
+            bool  channelMixerEnable =
+                channelMixerEnableParam ? channelMixerEnableParam->get() : false;
+            float mixRR = mixRRParam ? mixRRParam->load() : 1.0f;
+            float mixRG = mixRGParam ? mixRGParam->load() : 0.0f;
+            float mixRB = mixRBParam ? mixRBParam->load() : 0.0f;
+            float mixGR = mixGRParam ? mixGRParam->load() : 0.0f;
+            float mixGG = mixGGParam ? mixGGParam->load() : 1.0f;
+            float mixGB = mixGBParam ? mixGBParam->load() : 0.0f;
+            float mixBR = mixBRParam ? mixBRParam->load() : 0.0f;
+            float mixBG = mixBGParam ? mixBGParam->load() : 0.0f;
+            float mixBB = mixBBParam ? mixBBParam->load() : 1.0f;
+            float blendColorAmount = blendColorAmountParam ? blendColorAmountParam->load() : 0.0f;
+            float blendColorR = blendColorRParam ? blendColorRParam->load() : 1.0f;
+            float blendColorG = blendColorGParam ? blendColorGParam->load() : 0.0f;
+            float blendColorB = blendColorBParam ? blendColorBParam->load() : 0.0f;
+            int   blendMode = blendModeParam ? blendModeParam->getIndex() : 0;
+            bool  emboss = embossParam ? embossParam->get() : false;
+            float embossStrength = embossStrengthParam ? embossStrengthParam->load() : 1.0f;
+            float noiseAmount = noiseAmountParam ? noiseAmountParam->load() : 0.0f;
+            bool  solarize = solarizeParam ? solarizeParam->get() : false;
+            float solarizeThreshold =
+                solarizeThresholdParam ? solarizeThresholdParam->load() : 128.0f;
+            int   mirrorMode = mirrorModeParam ? mirrorModeParam->getIndex() : 0;
+            int   rotationMode = rotationModeParam ? rotationModeParam->getIndex() : 0;
+            float edgeGlowAmount = edgeGlowAmountParam ? edgeGlowAmountParam->load() : 0.0f;
+            float edgeGlowR = edgeGlowRParam ? edgeGlowRParam->load() : 0.0f;
+            float edgeGlowG = edgeGlowGParam ? edgeGlowGParam->load() : 1.0f;
+            float edgeGlowB = edgeGlowBParam ? edgeGlowBParam->load() : 1.0f;
+            float scanlineAmount = scanlineAmountParam ? scanlineAmountParam->load() : 0.0f;
+            int   scanlineSpacing = scanlineSpacingParam ? scanlineSpacingParam->get() : 2;
+            bool  ditherEnable = ditherEnableParam ? ditherEnableParam->get() : false;
+            int   ditherLevels = ditherLevelsParam ? ditherLevelsParam->get() : 4;
+            float chromaAberration = chromaAberrationParam ? chromaAberrationParam->load() : 0.0f;
+            float zoomBlurAmount = zoomBlurAmountParam ? zoomBlurAmountParam->load() : 0.0f;
 
-        if (runOnGpu)
-        {
+            const bool useGpu = useGpuParam ? useGpuParam->get() : false;
 #if defined(WITH_CUDA_SUPPORT)
-            try
+            const bool gpuAvailable = CudaDeviceCountCache::isAvailable();
+#else
+            const bool gpuAvailable = false;
+#endif
+
+            // Force CPU path when Canny is enabled to avoid hybrid GPU/CPU stalls
+            bool runOnGpu = (useGpu && gpuAvailable && !cannyEnable);
+
+            cv::Mat frame;
+            bool    gpuInputReady = false;
+
+            if (runOnGpu)
             {
-                if (!gpuInputReady)
-                    gpuFrame.upload(frame);
-
-                // === COLOR ===
-                applyBrightnessContrast_gpu(gpuFrame, brightness, contrast);
-                applyGamma_gpu(gpuFrame, gamma);
-                applyTemperature_gpu(gpuFrame, temperature);
-                applySepia_gpu(gpuFrame, sepia);
-                applySaturationHue_gpu(gpuFrame, saturation, hueShift);
-                applyRgbGain_gpu(gpuFrame, gainR, gainG, gainB);
-                applyLevels_gpu(gpuFrame, levelsBlack, levelsWhite, levelsGamma);
-                if (channelMixerEnable)
-                    applyChannelMixer_gpu(
-                        gpuFrame, mixRR, mixRG, mixRB, mixGR, mixGG, mixGB, mixBR, mixBG, mixBB);
-                applyBlendColor_gpu(
-                    gpuFrame, blendColorAmount, blendColorR, blendColorG, blendColorB, blendMode);
-                applyPosterize_gpu(gpuFrame, posterizeLevels);
-
-                // === FILTERS ===
-                applyGrayscale_gpu(gpuFrame, grayscale);
-                if (thresholdEnable)
-                    applyThreshold_gpu(gpuFrame, thresholdLevel);
-                applyInvert_gpu(gpuFrame, invert);
-                if (solarize)
-                    applySolarize_gpu(gpuFrame, solarizeThreshold);
-                if (emboss)
-                    applyEmboss_gpu(gpuFrame, embossStrength);
-                applyNoise_gpu(gpuFrame, noiseAmount);
-                applyBlur_gpu(gpuFrame, blur);
-                applySharpen_gpu(gpuFrame, sharpen);
-
-                // === GEOMETRIC ===
-                applyFlip_gpu(gpuFrame, flipH, flipV);
-                applyMirror_gpu(gpuFrame, mirrorMode);
-                applyRotation_gpu(gpuFrame, rotationMode);
-                applyVignette_gpu(gpuFrame, vignetteAmount, vignetteSize);
-                applyPixelate_gpu(gpuFrame, pixelateSize);
-                applyKaleidoscope_gpu(gpuFrame, kaleidoscopeMode);
-
-                // === STYLIZE ===
-                applyScanlines_gpu(gpuFrame, scanlineAmount, scanlineSpacing);
-                if (ditherEnable)
-                    applyDithering_gpu(gpuFrame, ditherLevels);
-                applyEdgeGlow_gpu(gpuFrame, edgeGlowAmount, edgeGlowR, edgeGlowG, edgeGlowB);
-
-                // === DISTORTION ===
-                applyChromaAberration_gpu(gpuFrame, chromaAberration);
-                applyZoomBlur_gpu(gpuFrame, zoomBlurAmount);
-
-                // Publish result via GPU manager
-                juce::uint32 myId = storedLogicalId;
-                if (myId != 0)
+#if defined(WITH_CUDA_SUPPORT)
+                // Try to fetch GPU frame first
+                if (sourceId != 0)
                 {
-                    VideoFrameManager::getInstance().setGpuFrame(myId, gpuFrame);
+                    cv::cuda::GpuMat gFrame =
+                        VideoFrameManager::getInstance().getGpuFrame(sourceId);
+                    if (!gFrame.empty())
+                    {
+                        gpuFrame = gFrame; // Use the reference or copy? GpuMat is ref-counted.
+                        // But we need a writable copy if we modify it in place?
+                        // The apply functions function in-place usually or take src/dst.
+                        // Let's ensure we work on a copy if we want to preserve input (though we
+                        // are consumimg it). Actually VideoFX usually acts as a filter. We should
+                        // clone if we don't own it. But GpuMat clone is deep copy. We can just rely
+                        // on the fact that we output to a NEW gpuFrame or modify in place if safe.
+                        // But we set `gpuFrame` to it.
+                        gpuInputReady = true;
+                    }
                 }
-
-                gpuFrame.download(processedFrame);
-
-                // === WET/DRY MIX ===
-                if (wetDryMix < 1.0f)
-                    cv::addWeighted(
-                        frame, 1.0f - wetDryMix, processedFrame, wetDryMix, 0, processedFrame);
+#endif
             }
-            catch (const cv::Exception& e)
+
+            if (!gpuInputReady)
+            {
+                // CPU Fetch Fallback
+                frame = prefetchedFrame.empty()
+                            ? VideoFrameManager::getInstance().getFrame(sourceId)
+                            : prefetchedFrame;
+
+                if (!frame.empty())
+                {
+                    const juce::ScopedLock lk(frameLock);
+                    frame.copyTo(lastFrameBgr);
+                }
+                else
+                {
+                    const juce::ScopedLock lk(frameLock);
+                    if (!lastFrameBgr.empty())
+                        frame = lastFrameBgr.clone();
+                }
+            }
+
+            // If both failed
+            if (!gpuInputReady && frame.empty())
+            {
+                wait(33);
+                continue;
+            }
+
+            // Monitor start time
+            auto startTime = juce::Time::getMillisecondCounterHiRes();
+
+            if (runOnGpu)
+            {
+#if defined(WITH_CUDA_SUPPORT)
+                try
+                {
+                    // Read Wet/Dry Params
+                    float wetDryColor = wetDryColorParam ? wetDryColorParam->get() : 1.0f;
+                    float wetDryFilters = wetDryFiltersParam ? wetDryFiltersParam->get() : 1.0f;
+                    float wetDryMoreFilters =
+                        wetDryMoreFiltersParam ? wetDryMoreFiltersParam->get() : 1.0f;
+                    float wetDryAdvanced = wetDryAdvancedParam ? wetDryAdvancedParam->get() : 1.0f;
+                    float wetDryNewEffects =
+                        wetDryNewEffectsParam ? wetDryNewEffectsParam->get() : 1.0f;
+                    float wetDryDistortion =
+                        wetDryDistortionParam ? wetDryDistortionParam->get() : 1.0f;
+
+                    if (!gpuInputReady)
+                        gpuFrame.upload(frame);
+
+                    // === 1. COLOR ADJUSTMENTS ===
+                    if (wetDryColor < 1.0f)
+                        gpuFrame.copyTo(gpuPreColor);
+
+                    applyBrightnessContrast_gpu(gpuFrame, brightness, contrast);
+                    applyGamma_gpu(gpuFrame, gamma);
+                    applyTemperature_gpu(gpuFrame, temperature);
+                    applySepia_gpu(gpuFrame, sepia);
+                    applySaturationHue_gpu(gpuFrame, saturation, hueShift);
+                    applyRgbGain_gpu(gpuFrame, gainR, gainG, gainB);
+
+                    if (wetDryColor < 1.0f)
+                        cv::cuda::addWeighted(
+                            gpuPreColor, 1.0f - wetDryColor, gpuFrame, wetDryColor, 0.0, gpuFrame);
+
+                    // === 2. FILTERS & EFFECTS ===
+                    if (wetDryFilters < 1.0f)
+                        gpuFrame.copyTo(gpuPreFilters);
+
+                    applySharpen_gpu(gpuFrame, sharpen);
+                    applyBlur_gpu(gpuFrame, blur);
+                    applyGrayscale_gpu(gpuFrame, grayscale);
+                    applyInvert_gpu(gpuFrame, invert);
+                    applyFlip_gpu(gpuFrame, flipH, flipV);
+
+                    if (wetDryFilters < 1.0f)
+                        cv::cuda::addWeighted(
+                            gpuPreFilters,
+                            1.0f - wetDryFilters,
+                            gpuFrame,
+                            wetDryFilters,
+                            0.0,
+                            gpuFrame);
+
+                    // === 3. MORE FILTERS ===
+                    if (wetDryMoreFilters < 1.0f)
+                        gpuFrame.copyTo(gpuPreMoreFilters);
+
+                    if (thresholdEnable)
+                        applyThreshold_gpu(gpuFrame, thresholdLevel);
+                    applyPosterize_gpu(gpuFrame, posterizeLevels);
+                    applyPixelate_gpu(gpuFrame, pixelateSize);
+                    if (cannyEnable)
+                        applyCanny_gpu(
+                            gpuFrame, cannyThresh1, cannyThresh2); // Now supported on GPU!
+
+                    if (wetDryMoreFilters < 1.0f)
+                        cv::cuda::addWeighted(
+                            gpuPreMoreFilters,
+                            1.0f - wetDryMoreFilters,
+                            gpuFrame,
+                            wetDryMoreFilters,
+                            0.0,
+                            gpuFrame);
+
+                    // === 4. ADVANCED EFFECTS ===
+                    if (wetDryAdvanced < 1.0f)
+                        gpuFrame.copyTo(gpuPreAdvanced);
+
+                    applyVignette_gpu(gpuFrame, vignetteAmount, vignetteSize);
+                    applyKaleidoscope_gpu(gpuFrame, kaleidoscopeMode);
+                    if (channelMixerEnable)
+                        applyChannelMixer_gpu(
+                            gpuFrame,
+                            mixRR,
+                            mixRG,
+                            mixRB,
+                            mixGR,
+                            mixGG,
+                            mixGB,
+                            mixBR,
+                            mixBG,
+                            mixBB);
+                    applyBlendColor_gpu(
+                        gpuFrame,
+                        blendColorAmount,
+                        blendColorR,
+                        blendColorG,
+                        blendColorB,
+                        blendMode);
+
+                    if (wetDryAdvanced < 1.0f)
+                        cv::cuda::addWeighted(
+                            gpuPreAdvanced,
+                            1.0f - wetDryAdvanced,
+                            gpuFrame,
+                            wetDryAdvanced,
+                            0.0,
+                            gpuFrame);
+
+                    // === 5. NEW EFFECTS ===
+                    if (wetDryNewEffects < 1.0f)
+                        gpuFrame.copyTo(gpuPreNewEffects);
+
+                    applyGamma_gpu(gpuFrame, gamma);
+                    applyLevels_gpu(gpuFrame, levelsBlack, levelsWhite, levelsGamma);
+                    applyNoise_gpu(gpuFrame, noiseAmount);
+                    if (solarize)
+                        applySolarize_gpu(gpuFrame, solarizeThreshold);
+                    if (emboss)
+                        applyEmboss_gpu(gpuFrame, embossStrength);
+                    applyMirror_gpu(gpuFrame, mirrorMode);
+                    applyRotation_gpu(gpuFrame, rotationMode);
+                    applyScanlines_gpu(gpuFrame, scanlineAmount, scanlineSpacing);
+                    if (ditherEnable)
+                        applyDithering_gpu(gpuFrame, ditherLevels);
+
+                    if (wetDryNewEffects < 1.0f)
+                        cv::cuda::addWeighted(
+                            gpuPreNewEffects,
+                            1.0f - wetDryNewEffects,
+                            gpuFrame,
+                            wetDryNewEffects,
+                            0.0,
+                            gpuFrame);
+
+                    // === 6. DISTORTION ===
+                    if (wetDryDistortion < 1.0f)
+                        gpuFrame.copyTo(gpuPreDistortion);
+
+                    applyEdgeGlow_gpu(gpuFrame, edgeGlowAmount, edgeGlowR, edgeGlowG, edgeGlowB);
+                    applyChromaAberration_gpu(gpuFrame, chromaAberration);
+                    applyZoomBlur_gpu(gpuFrame, zoomBlurAmount);
+
+                    if (wetDryDistortion < 1.0f)
+                        cv::cuda::addWeighted(
+                            gpuPreDistortion,
+                            1.0f - wetDryDistortion,
+                            gpuFrame,
+                            wetDryDistortion,
+                            0.0,
+                            gpuFrame);
+
+                    // Publish result via GPU manager
+                    juce::uint32 myId = storedLogicalId;
+                    if (myId != 0)
+                    {
+                        VideoFrameManager::getInstance().setGpuFrame(myId, gpuFrame);
+                    }
+
+                    gpuFrame.download(processedFrame);
+                }
+                catch (const cv::Exception& e)
+                {
+                    juce::Logger::writeToLog(
+                        "[VideoFX] GPU Error: " + juce::String(e.what()) +
+                        ". Falling back to CPU.");
+                    // If frame is empty (gpuInputReady was true), download from GPU
+                    if (frame.empty() && !gpuFrame.empty())
+                        gpuFrame.download(frame);
+                    if (!frame.empty())
+                        processedFrame = frame.clone();
+                    goto cpu_path_label;
+                }
+#endif
+            }
+            else
+            {
+            cpu_path_label:
+                // Skip CPU processing if frame is empty (guards against GPU fallback with empty
+                // frame)
+                if (frame.empty())
+                {
+                    wait(33);
+                    continue;
+                }
+                processedFrame = frame.clone();
+
+                // Read Wet/Dry Params
+                float wetDryColor = wetDryColorParam ? wetDryColorParam->get() : 1.0f;
+                float wetDryFilters = wetDryFiltersParam ? wetDryFiltersParam->get() : 1.0f;
+                float wetDryMoreFilters =
+                    wetDryMoreFiltersParam ? wetDryMoreFiltersParam->get() : 1.0f;
+                float wetDryAdvanced = wetDryAdvancedParam ? wetDryAdvancedParam->get() : 1.0f;
+                float wetDryNewEffects =
+                    wetDryNewEffectsParam ? wetDryNewEffectsParam->get() : 1.0f;
+                float wetDryDistortion =
+                    wetDryDistortionParam ? wetDryDistortionParam->get() : 1.0f;
+
+                // === 1. COLOR ADJUSTMENTS ===
+                if (wetDryColor < 1.0f)
+                    cpuPreColor = processedFrame.clone();
+
+                applyBrightnessContrast(processedFrame, brightness, contrast);
+                applyTemperature(processedFrame, temperature);
+                applySepia(processedFrame, sepia);
+                applySaturationHue(processedFrame, saturation, hueShift);
+                applyRgbGain(processedFrame, gainR, gainG, gainB);
+
+                if (wetDryColor < 1.0f)
+                    cv::addWeighted(
+                        cpuPreColor,
+                        1.0f - wetDryColor,
+                        processedFrame,
+                        wetDryColor,
+                        0.0,
+                        processedFrame);
+
+                // === 2. FILTERS & EFFECTS ===
+                if (wetDryFilters < 1.0f)
+                    cpuPreFilters = processedFrame.clone();
+
+                applySharpen(processedFrame, sharpen);
+                applyBlur(processedFrame, blur);
+                applyGrayscale(processedFrame, grayscale);
+                applyInvert(processedFrame, invert);
+                applyFlip(processedFrame, flipH, flipV);
+
+                if (wetDryFilters < 1.0f)
+                    cv::addWeighted(
+                        cpuPreFilters,
+                        1.0f - wetDryFilters,
+                        processedFrame,
+                        wetDryFilters,
+                        0.0,
+                        processedFrame);
+
+                // === 3. MORE FILTERS ===
+                if (wetDryMoreFilters < 1.0f)
+                    cpuPreMoreFilters = processedFrame.clone();
+
+                if (thresholdEnable)
+                    applyThreshold(processedFrame, thresholdLevel);
+                applyPosterize(processedFrame, posterizeLevels);
+                applyPixelate(processedFrame, pixelateSize);
+                if (cannyEnable)
+                    applyCanny(processedFrame, cannyThresh1, cannyThresh2);
+
+                if (wetDryMoreFilters < 1.0f)
+                    cv::addWeighted(
+                        cpuPreMoreFilters,
+                        1.0f - wetDryMoreFilters,
+                        processedFrame,
+                        wetDryMoreFilters,
+                        0.0,
+                        processedFrame);
+
+                // === 4. ADVANCED EFFECTS ===
+                if (wetDryAdvanced < 1.0f)
+                    cpuPreAdvanced = processedFrame.clone();
+
+                applyVignette(processedFrame, vignetteAmount, vignetteSize);
+                applyKaleidoscope(processedFrame, kaleidoscopeMode);
+                if (channelMixerEnable)
+                    applyChannelMixer(
+                        processedFrame,
+                        mixRR,
+                        mixRG,
+                        mixRB,
+                        mixGR,
+                        mixGG,
+                        mixGB,
+                        mixBR,
+                        mixBG,
+                        mixBB);
+                applyBlendColor(
+                    processedFrame,
+                    blendColorAmount,
+                    blendColorR,
+                    blendColorG,
+                    blendColorB,
+                    blendMode);
+
+                if (wetDryAdvanced < 1.0f)
+                    cv::addWeighted(
+                        cpuPreAdvanced,
+                        1.0f - wetDryAdvanced,
+                        processedFrame,
+                        wetDryAdvanced,
+                        0.0,
+                        processedFrame);
+
+                // === 5. NEW EFFECTS ===
+                if (wetDryNewEffects < 1.0f)
+                    cpuPreNewEffects = processedFrame.clone();
+
+                applyGamma(processedFrame, gamma);
+                applyLevels(processedFrame, levelsBlack, levelsWhite, levelsGamma);
+                applyNoise(processedFrame, noiseAmount);
+                if (solarize)
+                    applySolarize(processedFrame, solarizeThreshold);
+                if (emboss)
+                    applyEmboss(processedFrame, embossStrength);
+                applyMirror(processedFrame, mirrorMode);
+                applyRotation(processedFrame, rotationMode);
+                applyScanlines(processedFrame, scanlineAmount, scanlineSpacing);
+                if (ditherEnable)
+                    applyDithering(processedFrame, ditherLevels);
+
+                if (wetDryNewEffects < 1.0f)
+                    cv::addWeighted(
+                        cpuPreNewEffects,
+                        1.0f - wetDryNewEffects,
+                        processedFrame,
+                        wetDryNewEffects,
+                        0.0,
+                        processedFrame);
+
+                // === 6. DISTORTION ===
+                if (wetDryDistortion < 1.0f)
+                    cpuPreDistortion = processedFrame.clone();
+
+                applyEdgeGlow(processedFrame, edgeGlowAmount, edgeGlowR, edgeGlowG, edgeGlowB);
+                applyChromaAberration(processedFrame, chromaAberration);
+                applyZoomBlur(processedFrame, zoomBlurAmount);
+
+                if (wetDryDistortion < 1.0f)
+                    cv::addWeighted(
+                        cpuPreDistortion,
+                        1.0f - wetDryDistortion,
+                        processedFrame,
+                        wetDryDistortion,
+                        0.0,
+                        processedFrame);
+            }
+
+            juce::uint32 myLogicalId = storedLogicalId;
+            if (myLogicalId == 0 && parentSynth != nullptr)
+            {
+                for (const auto& info : parentSynth->getModulesInfo())
+                {
+                    if (parentSynth->getModuleForLogical(info.first) == this)
+                    {
+                        myLogicalId = info.first;
+                        storedLogicalId = myLogicalId;
+                        break;
+                    }
+                }
+            }
+
+            // --- 4. Publish and update UI ---
+            // If we processed on GPU, we downloaded to processedFrame, so this works for both.
+            // We publish to CPU manager for compatibility (though GPU manager has it too).
+            // This ensures downstream CPU nodes still work.
+            updateGuiFrame(processedFrame);
+            if (myLogicalId != 0)
+                VideoFrameManager::getInstance().setFrame(myLogicalId, processedFrame);
+
+            auto elapsed = juce::Time::getMillisecondCounterHiRes() - startTime;
+            lastProcessTimeMs = (float)elapsed;
+            lastProcessWasGpu = runOnGpu;
+
+            static int logCounter = 0;
+            if (++logCounter % 60 == 0) // Log once per second approx
             {
                 juce::Logger::writeToLog(
-                    "[VideoFX] GPU Error: " + juce::String(e.what()) + ". Falling back to CPU.");
-                processedFrame = frame.clone();
-                goto cpu_path_label;
+                    "[Perf] VideoFX: " + juce::String(elapsed, 2) +
+                    " ms (GPU: " + (runOnGpu ? "ON" : "OFF") + ")");
             }
-#endif
+
+            wait(33); // ~30 FPS
         }
-        else
-        {
-        cpu_path_label:
-            cv::Mat originalFrame = frame.clone();
-            processedFrame = frame.clone();
-
-            // === COLOR ===
-            applyBrightnessContrast(processedFrame, brightness, contrast);
-            applyGamma(processedFrame, gamma);
-            applyTemperature(processedFrame, temperature);
-            applySepia(processedFrame, sepia);
-            applySaturationHue(processedFrame, saturation, hueShift);
-            applyRgbGain(processedFrame, gainR, gainG, gainB);
-            applyLevels(processedFrame, levelsBlack, levelsWhite, levelsGamma);
-            if (channelMixerEnable)
-                applyChannelMixer(
-                    processedFrame, mixRR, mixRG, mixRB, mixGR, mixGG, mixGB, mixBR, mixBG, mixBB);
-            applyBlendColor(
-                processedFrame, blendColorAmount, blendColorR, blendColorG, blendColorB, blendMode);
-            applyPosterize(processedFrame, posterizeLevels);
-
-            // === FILTERS ===
-            applyGrayscale(processedFrame, grayscale);
-            if (cannyEnable)
-                applyCanny(processedFrame, cannyThresh1, cannyThresh2);
-            else if (thresholdEnable)
-                applyThreshold(processedFrame, thresholdLevel);
-            applyInvert(processedFrame, invert);
-            if (solarize)
-                applySolarize(processedFrame, solarizeThreshold);
-            if (emboss)
-                applyEmboss(processedFrame, embossStrength);
-            applyNoise(processedFrame, noiseAmount);
-            applyBlur(processedFrame, blur);
-            applySharpen(processedFrame, sharpen);
-
-            // === GEOMETRIC ===
-            applyFlip(processedFrame, flipH, flipV);
-            applyMirror(processedFrame, mirrorMode);
-            applyRotation(processedFrame, rotationMode);
-            applyVignette(processedFrame, vignetteAmount, vignetteSize);
-            applyPixelate(processedFrame, pixelateSize);
-            applyKaleidoscope(processedFrame, kaleidoscopeMode);
-
-            // === STYLIZE ===
-            applyScanlines(processedFrame, scanlineAmount, scanlineSpacing);
-            if (ditherEnable)
-                applyDithering(processedFrame, ditherLevels);
-            applyEdgeGlow(processedFrame, edgeGlowAmount, edgeGlowR, edgeGlowG, edgeGlowB);
-
-            // === DISTORTION ===
-            applyChromaAberration(processedFrame, chromaAberration);
-            applyZoomBlur(processedFrame, zoomBlurAmount);
-
-            // === WET/DRY MIX ===
-            if (wetDryMix < 1.0f)
-                cv::addWeighted(
-                    originalFrame, 1.0f - wetDryMix, processedFrame, wetDryMix, 0, processedFrame);
-        }
-
-        juce::uint32 myLogicalId = storedLogicalId;
-        if (myLogicalId == 0 && parentSynth != nullptr)
-        {
-            for (const auto& info : parentSynth->getModulesInfo())
-            {
-                if (parentSynth->getModuleForLogical(info.first) == this)
-                {
-                    myLogicalId = info.first;
-                    storedLogicalId = myLogicalId;
-                    break;
-                }
-            }
-        }
-
-        // --- 4. Publish and update UI ---
-        // If we processed on GPU, we downloaded to processedFrame, so this works for both.
-        // We publish to CPU manager for compatibility (though GPU manager has it too).
-        // This ensures downstream CPU nodes still work.
-        updateGuiFrame(processedFrame);
-        if (myLogicalId != 0)
-            VideoFrameManager::getInstance().setFrame(myLogicalId, processedFrame);
-
-        auto elapsed = juce::Time::getMillisecondCounterHiRes() - startTime;
-        lastProcessTimeMs = (float)elapsed;
-        lastProcessWasGpu = runOnGpu;
-
-        static int logCounter = 0;
-        if (++logCounter % 60 == 0) // Log once per second approx
+        catch (const cv::Exception& e)
         {
             juce::Logger::writeToLog(
-                "[Perf] VideoFX: " + juce::String(elapsed, 2) +
-                " ms (GPU: " + (runOnGpu ? "ON" : "OFF") + ")");
+                "[VideoFX] OpenCV Exception in run loop: " + juce::String(e.what()));
+            wait(100); // Brief pause before retry
         }
-
-        wait(33); // ~30 FPS
+        catch (const std::exception& e)
+        {
+            juce::Logger::writeToLog("[VideoFX] Exception in run loop: " + juce::String(e.what()));
+            wait(100);
+        }
+        catch (...)
+        {
+            juce::Logger::writeToLog("[VideoFX] Unknown exception in run loop");
+            wait(100);
+        }
     }
 }
 
@@ -1375,8 +1629,8 @@ void VideoFXModule::drawParametersInNode(
     // which is the entire canvas in ImNodes, causing them to extend beyond node bounds.
     // Solution: Temporarily constrain WorkRect and ContentRegionRect to node width.
     ImGuiWindow* window = ImGui::GetCurrentWindow();
-    const float  cursorX = ImGui::GetCursorPosX();
-    const float  nodeRightEdge = cursorX + itemWidth;
+    const float  cursorScreenX = ImGui::GetCursorScreenPos().x;
+    const float  nodeRightEdge = cursorScreenX + itemWidth;
 
     // Save original values
     const float savedWorkRectMaxX = window->WorkRect.Max.x;
@@ -1745,6 +1999,16 @@ void VideoFXModule::drawParametersInNode(
         if (temperatureMod)
             ImGui::EndDisabled();
 
+        // Wet/Dry Mix
+        {
+            float wetDry = wetDryColorParam ? wetDryColorParam->get() : 1.0f;
+            if (ImGui::SliderFloat("Color Wet/Dry", &wetDry, 0.0f, 1.0f))
+                if (wetDryColorParam)
+                    *wetDryColorParam = wetDry;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
+        }
+
         ImGui::TreePop(); // End Color Adjustments
     }
 
@@ -1826,6 +2090,16 @@ void VideoFXModule::drawParametersInNode(
             if (flipVerticalParam)
                 *flipVerticalParam = flipV;
             onModificationEnded();
+        }
+
+        // Wet/Dry Mix
+        {
+            float wetDry = wetDryFiltersParam ? wetDryFiltersParam->get() : 1.0f;
+            if (ImGui::SliderFloat("Filters Wet/Dry", &wetDry, 0.0f, 1.0f))
+                if (wetDryFiltersParam)
+                    *wetDryFiltersParam = wetDry;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
         }
 
         ImGui::TreePop(); // End Filters & Effects
@@ -1972,6 +2246,16 @@ void VideoFXModule::drawParametersInNode(
                 ImGui::EndDisabled();
         }
 
+        // Wet/Dry Mix
+        {
+            float wetDry = wetDryMoreFiltersParam ? wetDryMoreFiltersParam->get() : 1.0f;
+            if (ImGui::SliderFloat("More Filters Wet/Dry", &wetDry, 0.0f, 1.0f))
+                if (wetDryMoreFiltersParam)
+                    *wetDryMoreFiltersParam = wetDry;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
+        }
+
         ImGui::TreePop(); // End More Filters
     }
 
@@ -2063,6 +2347,16 @@ void VideoFXModule::drawParametersInNode(
         if (kaleidoscopeMod)
             ImGui::EndDisabled();
 
+        // Wet/Dry Mix
+        {
+            float wetDry = wetDryAdvancedParam ? wetDryAdvancedParam->get() : 1.0f;
+            if (ImGui::SliderFloat("Advanced Wet/Dry", &wetDry, 0.0f, 1.0f))
+                if (wetDryAdvancedParam)
+                    *wetDryAdvancedParam = wetDry;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
+        }
+
         ImGui::TreePop(); // End Advanced Effects
     }
 
@@ -2077,17 +2371,6 @@ void VideoFXModule::drawParametersInNode(
             if (ImGui::SliderFloat("Gamma", &gamma, 0.1f, 3.0f))
                 if (auto* p = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("gamma")))
                     *p = gamma;
-            if (ImGui::IsItemDeactivatedAfterEdit())
-                onModificationEnded();
-        }
-
-        // Wet/Dry Mix
-        {
-            float wetDry = wetDryMixParam ? wetDryMixParam->load() : 1.0f;
-            if (ImGui::SliderFloat("Wet/Dry Mix", &wetDry, 0.0f, 1.0f))
-                if (auto* p =
-                        dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("wetDryMix")))
-                    *p = wetDry;
             if (ImGui::IsItemDeactivatedAfterEdit())
                 onModificationEnded();
         }
@@ -2219,6 +2502,16 @@ void VideoFXModule::drawParametersInNode(
             }
         }
 
+        // Wet/Dry Mix
+        {
+            float wetDry = wetDryNewEffectsParam ? wetDryNewEffectsParam->get() : 1.0f;
+            if (ImGui::SliderFloat("New Effects Wet/Dry", &wetDry, 0.0f, 1.0f))
+                if (wetDryNewEffectsParam)
+                    *wetDryNewEffectsParam = wetDry;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
+        }
+
         ImGui::TreePop(); // End New Effects
     }
 
@@ -2270,6 +2563,16 @@ void VideoFXModule::drawParametersInNode(
                             apvts.getParameter("edgeGlowB")))
                         *p = b;
             }
+        }
+
+        // Wet/Dry Mix
+        {
+            float wetDry = wetDryDistortionParam ? wetDryDistortionParam->get() : 1.0f;
+            if (ImGui::SliderFloat("Distortion Wet/Dry", &wetDry, 0.0f, 1.0f))
+                if (wetDryDistortionParam)
+                    *wetDryDistortionParam = wetDry;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                onModificationEnded();
         }
 
         ImGui::TreePop(); // End Distortion
@@ -2487,28 +2790,24 @@ void VideoFXModule::applyRgbGain_gpu(
 
 void VideoFXModule::applyCanny_gpu(cv::cuda::GpuMat& ioFrame, float thresh1, float thresh2)
 {
-    // 9. Canny Edge Detect
-    // Note: cv::cuda::Canny() and cv::cuda::createCannyDetector() are not available
-    // in standard OpenCV CUDA. We fall back to CPU for Canny edge detection.
-    // This is a known limitation - Canny requires complex edge detection algorithms
-    // that may not be available in the CUDA module.
+    static cv::Ptr<cv::cuda::CannyEdgeDetector> canny;
+    static float                                lastT1 = -1, lastT2 = -1;
 
-    // 1. Convert to grayscale on GPU
-    cv::cuda::cvtColor(ioFrame, gpuGray, cv::COLOR_BGR2GRAY);
+    if (!canny || thresh1 != lastT1 || thresh2 != lastT2)
+    {
+        canny = cv::cuda::createCannyEdgeDetector(thresh1, thresh2);
+        lastT1 = thresh1;
+        lastT2 = thresh2;
+    }
 
-    // 2. Download to CPU for Canny processing
-    cv::Mat grayCpu;
-    gpuGray.download(grayCpu);
+    if (ioFrame.channels() != 1)
+        cv::cuda::cvtColor(ioFrame, gpuGray, cv::COLOR_BGR2GRAY);
+    else
+        ioFrame.copyTo(gpuGray);
 
-    // 3. Apply Canny on CPU
-    cv::Mat edgesCpu;
-    cv::Canny(grayCpu, edgesCpu, thresh1, thresh2);
-
-    // 4. Upload back to GPU
-    gpuTemp.upload(edgesCpu);
-
-    // 5. Convert the single-channel edge map back to 3-channel BGR
-    cv::cuda::cvtColor(gpuTemp, ioFrame, cv::COLOR_GRAY2BGR);
+    cv::cuda::GpuMat edges;
+    canny->detect(gpuGray, edges);
+    cv::cuda::cvtColor(edges, ioFrame, cv::COLOR_GRAY2BGR);
 }
 
 void VideoFXModule::applyThreshold_gpu(cv::cuda::GpuMat& ioFrame, float level)
@@ -2845,13 +3144,54 @@ void VideoFXModule::applyChannelMixer_gpu(
     float             bg,
     float             bb)
 {
+    // Pure GPU implementation using channel split and per-channel math
     if (rr == 1.0f && rg == 0.0f && rb == 0.0f && gr == 0.0f && gg == 1.0f && gb == 0.0f &&
         br == 0.0f && bg == 0.0f && bb == 1.0f)
         return;
-    cv::Mat cpu;
-    ioFrame.download(cpu);
-    applyChannelMixer(cpu, rr, rg, rb, gr, gg, gb, br, bg, bb);
-    ioFrame.upload(cpu);
+
+    // Split into B, G, R channels
+    std::vector<cv::cuda::GpuMat> channels(3);
+    cv::cuda::split(ioFrame, channels);
+
+    // Convert to float for accurate math
+    cv::cuda::GpuMat bFloat, gFloat, rFloat;
+    channels[0].convertTo(bFloat, CV_32F);
+    channels[1].convertTo(gFloat, CV_32F);
+    channels[2].convertTo(rFloat, CV_32F);
+
+    // Apply channel mixing matrix:
+    // newR = rr*R + rg*G + rb*B
+    // newG = gr*R + gg*G + gb*B
+    // newB = br*R + bg*G + bb*B
+    cv::cuda::GpuMat newR, newG, newB, temp1, temp2;
+
+    // New Red channel
+    cv::cuda::multiply(rFloat, cv::Scalar(rr), newR);
+    cv::cuda::multiply(gFloat, cv::Scalar(rg), temp1);
+    cv::cuda::add(newR, temp1, newR);
+    cv::cuda::multiply(bFloat, cv::Scalar(rb), temp1);
+    cv::cuda::add(newR, temp1, newR);
+
+    // New Green channel
+    cv::cuda::multiply(rFloat, cv::Scalar(gr), newG);
+    cv::cuda::multiply(gFloat, cv::Scalar(gg), temp1);
+    cv::cuda::add(newG, temp1, newG);
+    cv::cuda::multiply(bFloat, cv::Scalar(gb), temp1);
+    cv::cuda::add(newG, temp1, newG);
+
+    // New Blue channel
+    cv::cuda::multiply(rFloat, cv::Scalar(br), newB);
+    cv::cuda::multiply(gFloat, cv::Scalar(bg), temp1);
+    cv::cuda::add(newB, temp1, newB);
+    cv::cuda::multiply(bFloat, cv::Scalar(bb), temp1);
+    cv::cuda::add(newB, temp1, newB);
+
+    // Convert back to 8-bit and merge
+    newB.convertTo(channels[0], CV_8U);
+    newG.convertTo(channels[1], CV_8U);
+    newR.convertTo(channels[2], CV_8U);
+
+    cv::cuda::merge(channels, ioFrame);
 }
 
 void VideoFXModule::applyBlendColor_gpu(
@@ -2862,38 +3202,121 @@ void VideoFXModule::applyBlendColor_gpu(
     float             b,
     int               blendMode)
 {
+    // Pure GPU implementation
     if (amount <= 0.0f)
         return;
-    cv::Mat cpu;
-    ioFrame.download(cpu);
-    applyBlendColor(cpu, amount, r, g, b, blendMode);
-    ioFrame.upload(cpu);
+
+    // Create solid color overlay on GPU (cached)
+    static cv::cuda::GpuMat overlayGpu;
+    static int              lastW = 0, lastH = 0;
+    static float            lastR = -1, lastG = -1, lastB = -1;
+
+    if (ioFrame.cols != lastW || ioFrame.rows != lastH || r != lastR || g != lastG || b != lastB)
+    {
+        cv::Mat overlayCpu(
+            ioFrame.rows, ioFrame.cols, ioFrame.type(), cv::Scalar(b * 255, g * 255, r * 255));
+        overlayGpu.upload(overlayCpu);
+        lastW = ioFrame.cols;
+        lastH = ioFrame.rows;
+        lastR = r;
+        lastG = g;
+        lastB = b;
+    }
+
+    switch (blendMode)
+    {
+    case 0: // Normal blend
+        cv::cuda::addWeighted(ioFrame, 1.0 - amount, overlayGpu, amount, 0, ioFrame);
+        break;
+    case 1: // Multiply blend
+    {
+        cv::cuda::GpuMat multiplied;
+        cv::cuda::multiply(ioFrame, overlayGpu, multiplied, 1.0 / 255.0);
+        cv::cuda::addWeighted(ioFrame, 1.0 - amount, multiplied, amount, 0, ioFrame);
+        break;
+    }
+    case 4: // Add blend
+    {
+        cv::cuda::GpuMat scaled;
+        cv::cuda::multiply(overlayGpu, cv::Scalar(amount, amount, amount), scaled);
+        cv::cuda::add(ioFrame, scaled, ioFrame);
+        break;
+    }
+    default:
+        cv::cuda::addWeighted(ioFrame, 1.0 - amount, overlayGpu, amount, 0, ioFrame);
+        break;
+    }
 }
 
 void VideoFXModule::applySolarize_gpu(cv::cuda::GpuMat& ioFrame, float threshold)
 {
-    cv::Mat cpu;
-    ioFrame.download(cpu);
-    applySolarize(cpu, threshold);
-    ioFrame.upload(cpu);
+    // Pure GPU implementation using cached LUT
+    static cv::cuda::GpuMat               solarizeLutGpu;
+    static cv::Ptr<cv::cuda::LookUpTable> solarizeLutObj;
+    static float                          lastThreshold = -1.0f;
+
+    if (threshold != lastThreshold || solarizeLutGpu.empty())
+    {
+        cv::Mat lutCpu(1, 256, CV_8UC1);
+        for (int i = 0; i < 256; i++)
+            lutCpu.at<uchar>(i) = (i > threshold) ? (255 - i) : static_cast<uchar>(i);
+        solarizeLutGpu.upload(lutCpu);
+        solarizeLutObj = cv::cuda::createLookUpTable(solarizeLutGpu);
+        lastThreshold = threshold;
+    }
+    solarizeLutObj->transform(ioFrame, ioFrame);
 }
 
 void VideoFXModule::applyEmboss_gpu(cv::cuda::GpuMat& ioFrame, float strength)
 {
-    cv::Mat cpu;
-    ioFrame.download(cpu);
-    applyEmboss(cpu, strength);
-    ioFrame.upload(cpu);
+    // Pure GPU implementation using cached convolution filter
+    static cv::Ptr<cv::cuda::Filter> embossFilter;
+    static float                     lastStrength = -1.0f;
+
+    if (strength != lastStrength || !embossFilter)
+    {
+        cv::Mat kernel =
+            (cv::Mat_<float>(3, 3) << -2 * strength,
+             -strength,
+             0,
+             -strength,
+             1,
+             strength,
+             0,
+             strength,
+             2 * strength);
+        embossFilter = cv::cuda::createLinearFilter(ioFrame.type(), ioFrame.type(), kernel);
+        lastStrength = strength;
+    }
+    embossFilter->apply(ioFrame, ioFrame);
+    cv::cuda::add(ioFrame, cv::Scalar(128, 128, 128), ioFrame);
 }
 
 void VideoFXModule::applyNoise_gpu(cv::cuda::GpuMat& ioFrame, float amount)
 {
+    // GPU implementation with cached noise texture
+    // cv::cuda::randu doesn't exist in all OpenCV versions, so we generate noise on CPU
+    // and cache/upload it to GPU. Noise is regenerated periodically for temporal variation.
     if (amount <= 0.0f)
         return;
-    cv::Mat cpu;
-    ioFrame.download(cpu);
-    applyNoise(cpu, amount);
-    ioFrame.upload(cpu);
+
+    static cv::cuda::GpuMat noiseGpu;
+    static int              lastW = 0, lastH = 0;
+    static float            lastAmount = -1.0f;
+    static int              frameCounter = 0;
+
+    // Regenerate noise if size/amount changed or every 2 frames for temporal variation
+    if (ioFrame.cols != lastW || ioFrame.rows != lastH || amount != lastAmount ||
+        (frameCounter++ % 2 == 0))
+    {
+        cv::Mat noiseCpu(ioFrame.rows, ioFrame.cols, ioFrame.type());
+        cv::randn(noiseCpu, 0, amount * 50);
+        noiseGpu.upload(noiseCpu);
+        lastW = ioFrame.cols;
+        lastH = ioFrame.rows;
+        lastAmount = amount;
+    }
+    cv::cuda::add(ioFrame, noiseGpu, ioFrame, cv::noArray(), ioFrame.type());
 }
 
 void VideoFXModule::applyMirror_gpu(cv::cuda::GpuMat& ioFrame, int mode)
@@ -3002,43 +3425,64 @@ void VideoFXModule::applyDithering_gpu(cv::cuda::GpuMat& ioFrame, int levels)
 
 void VideoFXModule::applyChromaAberration_gpu(cv::cuda::GpuMat& ioFrame, float amount)
 {
-    if (amount <= 0.0f)
-        return;
+    if (amount < 1.0f)
+        return; // Skip if less than 1 pixel shift
+
     int shift = static_cast<int>(amount);
-    // Split channels, shift using warpAffine, merge back
-    std::vector<cv::cuda::GpuMat> channels(3);
-    cv::cuda::split(ioFrame, channels);
 
-    cv::Mat M_r = (cv::Mat_<float>(2, 3) << 1, 0, shift, 0, 1, 0);
-    cv::Mat M_b = (cv::Mat_<float>(2, 3) << 1, 0, -shift, 0, 1, 0);
+    // Cache transformation matrices based on shift value
+    static int     lastShift = 0;
+    static cv::Mat M_r, M_b;
+    if (shift != lastShift)
+    {
+        M_r = (cv::Mat_<float>(2, 3) << 1, 0, shift, 0, 1, 0);
+        M_b = (cv::Mat_<float>(2, 3) << 1, 0, -shift, 0, 1, 0);
+        lastShift = shift;
+    }
 
-    cv::cuda::warpAffine(channels[2], channels[2], M_r, ioFrame.size());
-    cv::cuda::warpAffine(channels[0], channels[0], M_b, ioFrame.size());
-    cv::cuda::merge(channels, ioFrame);
+    // Use member buffer for channels
+    cv::cuda::split(ioFrame, gpuChannels);
+
+    cv::cuda::warpAffine(gpuChannels[2], gpuChannels[2], M_r, ioFrame.size());
+    cv::cuda::warpAffine(gpuChannels[0], gpuChannels[0], M_b, ioFrame.size());
+    cv::cuda::merge(gpuChannels, ioFrame);
 }
 
 void VideoFXModule::applyZoomBlur_gpu(cv::cuda::GpuMat& ioFrame, float amount)
 {
-    if (amount <= 0.0f)
-        return;
-    // Zoom blur needs multiple warp operations - use GPU warpAffine
-    int   steps = std::min(static_cast<int>(amount * 10) + 1, 5);
+    if (amount < 0.1f)
+        return; // Skip for very low values
+
+    // Limit to 2 steps max for better performance
+    int   steps = std::min(static_cast<int>(amount * 3) + 1, 2);
     float cx = ioFrame.cols / 2.0f, cy = ioFrame.rows / 2.0f;
 
-    cv::cuda::GpuMat accum32F;
-    ioFrame.convertTo(accum32F, CV_32FC3);
+    // Pre-calculate scale for single step if only 1 step
+    float   scale = 1.0f + (amount * 0.03f);
+    cv::Mat M = cv::getRotationMatrix2D(cv::Point2f(cx, cy), 0, scale);
+    cv::cuda::warpAffine(ioFrame, gpuTemp, M, ioFrame.size());
 
-    for (int i = 1; i <= steps; i++)
+    if (steps == 1)
     {
-        float            scale = 1.0f + (amount * 0.02f * i);
-        cv::Mat          M = cv::getRotationMatrix2D(cv::Point2f(cx, cy), 0, scale);
-        cv::cuda::GpuMat warped, warped32F;
-        cv::cuda::warpAffine(ioFrame, warped, M, ioFrame.size());
-        warped.convertTo(warped32F, CV_32FC3);
-        cv::cuda::add(accum32F, warped32F, accum32F);
+        // Simple blend for 1 step - faster
+        cv::cuda::addWeighted(ioFrame, 0.5, gpuTemp, 0.5, 0, ioFrame);
     }
-    cv::cuda::divide(accum32F, cv::Scalar(steps + 1, steps + 1, steps + 1), accum32F);
-    accum32F.convertTo(ioFrame, CV_8UC3);
+    else
+    {
+        // 2 step blend
+        ioFrame.convertTo(gpuTempF1, CV_32FC3);
+        gpuTemp.convertTo(gpuTempF2, CV_32FC3);
+        cv::cuda::add(gpuTempF1, gpuTempF2, gpuTempF1);
+
+        float   scale2 = 1.0f + (amount * 0.06f);
+        cv::Mat M2 = cv::getRotationMatrix2D(cv::Point2f(cx, cy), 0, scale2);
+        cv::cuda::warpAffine(ioFrame, gpuTemp, M2, ioFrame.size());
+        gpuTemp.convertTo(gpuTempF2, CV_32FC3);
+        cv::cuda::add(gpuTempF1, gpuTempF2, gpuTempF1);
+
+        cv::cuda::divide(gpuTempF1, cv::Scalar(3, 3, 3), gpuTempF1);
+        gpuTempF1.convertTo(ioFrame, CV_8UC3);
+    }
 }
 
 void VideoFXModule::applyEdgeGlow_gpu(
@@ -3048,27 +3492,36 @@ void VideoFXModule::applyEdgeGlow_gpu(
     float             g,
     float             b)
 {
-    if (amount <= 0.0f)
-        return;
-    cv::cuda::GpuMat gray, edges;
-    cv::cuda::cvtColor(ioFrame, gray, cv::COLOR_BGR2GRAY);
+    if (amount < 0.05f)
+        return; // Skip for very low glow values
 
-    cv::Ptr<cv::cuda::CannyEdgeDetector> canny = cv::cuda::createCannyEdgeDetector(50, 150);
-    canny->detect(gray, edges);
+    // Cache the Canny detector and dilate filter to avoid recreation each frame
+    static cv::Ptr<cv::cuda::CannyEdgeDetector> canny;
+    static cv::Ptr<cv::cuda::Filter>            dilateFilter;
+    if (!canny)
+        canny = cv::cuda::createCannyEdgeDetector(50, 150);
+    if (!dilateFilter)
+        dilateFilter =
+            cv::cuda::createMorphologyFilter(cv::MORPH_DILATE, CV_8UC1, cv::Mat::ones(3, 3, CV_8U));
 
-    cv::Ptr<cv::cuda::Filter> dilateFilter =
-        cv::cuda::createMorphologyFilter(cv::MORPH_DILATE, CV_8UC1, cv::Mat::ones(3, 3, CV_8U));
-    dilateFilter->apply(edges, edges);
-    dilateFilter->apply(edges, edges);
+    cv::cuda::cvtColor(ioFrame, gpuGray, cv::COLOR_BGR2GRAY);
 
-    cv::cuda::GpuMat glow(ioFrame.size(), ioFrame.type(), cv::Scalar(b * 255, g * 255, r * 255));
-    cv::cuda::GpuMat edgesMask;
-    cv::cuda::cvtColor(edges, edgesMask, cv::COLOR_GRAY2BGR);
+    canny->detect(gpuGray, gpuTemp); // Use gpuTemp for edges instead of allocating
 
-    cv::cuda::GpuMat glowMasked;
-    cv::cuda::multiply(glow, edgesMask, glowMasked, 1.0 / 255.0);
+    dilateFilter->apply(gpuTemp, gpuTemp); // Single dilate pass (was 2)
 
-    cv::cuda::addWeighted(ioFrame, 1.0, glowMasked, amount, 0, ioFrame);
+    // Optimized: use gpuTempF1 for glow color, gpuTempF2 for edge mask
+    cv::cuda::cvtColor(gpuTemp, gpuTemp, cv::COLOR_GRAY2BGR);
+    gpuTemp.convertTo(gpuTempF1, CV_32FC3, 1.0 / 255.0);
+
+    // Create color glow and multiply
+    cv::Scalar glowColor(b * 255, g * 255, r * 255);
+    gpuTempF2.create(ioFrame.size(), CV_32FC3);
+    gpuTempF2.setTo(glowColor);
+    cv::cuda::multiply(gpuTempF2, gpuTempF1, gpuTempF1);
+
+    gpuTempF1.convertTo(gpuTemp, CV_8UC3);
+    cv::cuda::addWeighted(ioFrame, 1.0, gpuTemp, amount, 0, ioFrame);
 }
 
 #endif

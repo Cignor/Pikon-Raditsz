@@ -1,10 +1,11 @@
 #include "VersionManager.h"
+#include "../utils/VersionInfo.h"
 
 namespace Updater
 {
 
 VersionManager::VersionManager()
-    : currentVersion("0.85.0") // Default version
+    : currentVersion("0.9.0") // Default version
 #if AUDIO_ONLY_BUILD
       ,
       currentVariant("audio") // Audio-only variant
@@ -130,6 +131,7 @@ bool VersionManager::loadVersionInfo()
             versionFile.getFullPathName());
         juce::Logger::writeToLog(
             "  This is normal for first run - file will be created when files are registered");
+        currentVersion = VersionInfo::getFullVersionString(); // Show actual binary version in UI
         versionInfoLoaded = true; // Mark as loaded even if file doesn't exist
         return false;
     }
@@ -146,6 +148,8 @@ bool VersionManager::loadVersionInfo()
     if (auto* obj = json.getDynamicObject())
     {
         currentVersion = obj->getProperty("appVersion").toString();
+        // Override with actual binary version so updater UI always shows running app version
+        currentVersion = VersionInfo::getFullVersionString();
         // currentVariant = obj->getProperty("variant").toString(); // Do NOT overwrite variant from
         // file - trust the build config!
 

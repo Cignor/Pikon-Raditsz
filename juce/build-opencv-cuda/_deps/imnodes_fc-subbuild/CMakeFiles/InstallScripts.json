@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/imnodes_fc-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

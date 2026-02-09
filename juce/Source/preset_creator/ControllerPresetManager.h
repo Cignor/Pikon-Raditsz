@@ -17,7 +17,8 @@ public:
         JogWheel,
         StrokeSequencer,
         GraphicEQ,
-        MultiBandShaper
+        MultiBandShaper,
+        FunctionGenerator
     };
 
     // Get the singleton instance of the manager.
@@ -34,7 +35,10 @@ public:
     juce::ValueTree loadPreset(ModuleType type, const juce::String& presetName);
 
     // Save a ValueTree of mapping data to a preset file.
-    bool savePreset(ModuleType type, const juce::String& presetName, const juce::ValueTree& dataToSave);
+    bool savePreset(
+        ModuleType             type,
+        const juce::String&    presetName,
+        const juce::ValueTree& dataToSave);
 
     // Delete a preset file.
     bool deletePreset(ModuleType type, const juce::String& presetName);
@@ -46,12 +50,11 @@ private:
 
     // Helper to get the correct subdirectory for a module type.
     juce::File getDirectoryForType(ModuleType type);
-    
+
     // Scans all subdirectories and populates the cache.
     void scanAllPresets();
 
-    juce::File rootDirectory;
+    juce::File                              rootDirectory;
     std::map<ModuleType, juce::StringArray> presetCache;
-    juce::StringArray emptyArray; // Used as a safe fallback
+    juce::StringArray                       emptyArray; // Used as a safe fallback
 };
-

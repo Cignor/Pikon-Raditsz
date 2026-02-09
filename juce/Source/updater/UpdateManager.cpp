@@ -34,7 +34,8 @@ UpdateManager::UpdateManager()
     // Don't automatically register the running executable on startup
     // This avoids loading installed_files.json and calculating expensive hashes
     // Registration will happen when user actually checks for updates
-    juce::Logger::writeToLog("=== UpdateManager initialized (lazy registration on update check) ===");
+    juce::Logger::writeToLog(
+        "=== UpdateManager initialized (lazy registration on update check) ===");
     DBG("=== UpdateManager initialized (lazy registration on update check) ===");
 }
 
@@ -213,7 +214,7 @@ void UpdateManager::onDownloadComplete(bool success, juce::String error)
 
     // Get successfully downloaded files (even if some failed)
     auto successfulDownloads = fileDownloader->getSuccessfulFiles();
-    
+
     if (successfulDownloads.isEmpty())
     {
         // No files downloaded successfully
@@ -228,17 +229,18 @@ void UpdateManager::onDownloadComplete(bool success, juce::String error)
     // Show warning if some files failed to download
     if (!success && !error.isEmpty())
     {
-        juce::String warning = "Some files failed to download, but continuing with " + 
-                              juce::String(successfulDownloads.size()) + " successful download(s):\n\n" + error;
+        juce::String warning = "Some files failed to download, but continuing with " +
+                               juce::String(successfulDownloads.size()) +
+                               " successful download(s):\n\n" + error;
         juce::Logger::writeToLog(warning);
     }
 
     // Apply only the successfully downloaded files
     auto tempDir = getTempDirectory();
-    
+
     juce::Array<juce::String> failedApplies;
-    juce::Array<FileInfo> successfulApplies;
-    
+    juce::Array<FileInfo>     successfulApplies;
+
     bool applied = updateApplier->applyUpdates(
         successfulDownloads, // Only apply files that downloaded successfully
         tempDir,
@@ -249,9 +251,9 @@ void UpdateManager::onDownloadComplete(bool success, juce::String error)
 
     // Build summary message
     juce::String summary;
-    const int totalRequested = selectedFilesForCurrentRun.isEmpty()
-                                   ? currentUpdateInfo.filesToDownload.size()
-                                   : selectedFilesForCurrentRun.size();
+    const int    totalRequested = selectedFilesForCurrentRun.isEmpty()
+                                      ? currentUpdateInfo.filesToDownload.size()
+                                      : selectedFilesForCurrentRun.size();
 
     if (successfulApplies.size() == successfulDownloads.size() && failedApplies.isEmpty())
     {
@@ -267,7 +269,9 @@ void UpdateManager::onDownloadComplete(bool success, juce::String error)
         if (!failedApplies.isEmpty())
             summary += "Failed to apply: " + juce::String(failedApplies.size()) + " file(s)\n";
         if (successfulDownloads.size() < totalRequested)
-            summary += "Failed to download: " + juce::String(totalRequested - successfulDownloads.size()) + " file(s)\n";
+            summary +=
+                "Failed to download: " + juce::String(totalRequested - successfulDownloads.size()) +
+                " file(s)\n";
     }
 
     if (!applied && successfulApplies.isEmpty())
@@ -293,17 +297,15 @@ void UpdateManager::onDownloadComplete(bool success, juce::String error)
     if (requiresRestartForCurrentRun && !successfulApplies.isEmpty())
     {
         DBG("Update requires restart - launching PikonUpdater.exe");
-        
+
         // Create update manifest for PikonUpdater using only successfully downloaded files
-        auto updateManifest = createUpdateManifest(
-            successfulDownloads, tempDir);
-        
+        auto updateManifest = createUpdateManifest(successfulDownloads, tempDir);
+
         // Get path to PikonUpdater.exe (shipped with app)
-        auto updaterPath = juce::File::getSpecialLocation(
-            juce::File::currentExecutableFile)
-            .getParentDirectory()
-            .getChildFile("PikonUpdater.exe");
-        
+        auto updaterPath = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+                               .getParentDirectory()
+                               .getChildFile("PikonUpdater.exe");
+
         if (!updaterPath.existsAsFile())
         {
             DBG("PikonUpdater.exe not found!");
@@ -314,29 +316,30 @@ void UpdateManager::onDownloadComplete(bool success, juce::String error)
                 "OK");
             return;
         }
-        
+
         // Get current process ID
         auto currentPID = GetCurrentProcessId();
-        
+
         // Build command line
         juce::String cmdLine;
         cmdLine << "\"" << updaterPath.getFullPathName() << "\" ";
         cmdLine << "--source \"" << tempDir.getFullPathName() << "\" ";
         cmdLine << "--dest \"" << getInstallDirectory().getFullPathName() << "\" ";
         cmdLine << "--manifest \"" << updateManifest.getFullPathName() << "\" ";
-        cmdLine << "--relaunch \"" << juce::File::getSpecialLocation(
-            juce::File::currentExecutableFile).getFileName() << "\" ";
+        cmdLine << "--relaunch \""
+                << juce::File::getSpecialLocation(juce::File::currentExecutableFile).getFileName()
+                << "\" ";
         cmdLine << "--wait-pid " << juce::String(currentPID);
-        
+
         DBG("Launching updater: " + cmdLine);
-        
+
         // Show message with summary
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::InfoIcon,
             "Update Complete - Restarting",
             summary + "\n\nThe application will now restart to complete the update.",
             "OK");
-        
+
         // Launch updater and quit after short delay
         juce::Timer::callAfterDelay(1000, [this, updaterPath, cmdLine]() {
             if (updaterPath.startAsProcess(cmdLine))
@@ -449,7 +452,7 @@ juce::PropertiesFile* UpdateManager::getPropertiesFile()
 
         return props.get();
     }
-    
+
     return nullptr;
 }
 
@@ -492,196 +495,36 @@ void UpdateManager::cacheManifest(const juce::String& manifestJson)
 
 void UpdateManager::registerRunningExecutable()
 {
-    // This function is only called when checking for updates (manual or automatic)
-    // It will trigger lazy loading of installed_files.json at this point
-    juce::Logger::writeToLog("================================================");
-    juce::Logger::writeToLog("=== REGISTER RUNNING EXECUTABLE START ===");
-    DBG("================================================");
-    DBG("=== REGISTER RUNNING EXECUTABLE START ===");
-    
+    // OPTIMIZED: Use SIZE comparison instead of expensive hash calculation
+    // This function is called on the UI thread, so we keep it fast
+
     auto exePath = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
     auto exeName = exePath.getFileName();
 
-    juce::Logger::writeToLog("EXE Name: " + exeName);
-    juce::Logger::writeToLog("EXE Path: " + exePath.getFullPathName());
-    juce::Logger::writeToLog("EXE Exists: " + juce::String(exePath.existsAsFile() ? "YES" : "NO"));
-    DBG("EXE Name: " + exeName);
-    DBG("EXE Path: " + exePath.getFullPathName());
-    DBG("EXE Exists: " + juce::String(exePath.existsAsFile() ? "YES" : "NO"));
-    
     if (!exePath.existsAsFile())
-    {
-        juce::Logger::writeToLog("  ❌ EXE file not found, cannot register");
-        juce::Logger::writeToLog("================================================");
         return;
-    }
-    
+
     auto exeSize = exePath.getSize();
-    auto exeModTime = exePath.getLastModificationTime();
-    juce::Logger::writeToLog("EXE Size: " + juce::String(exeSize) + " bytes");
-    juce::Logger::writeToLog("EXE Modified: " + exeModTime.toString(true, true, true, true));
-    DBG("EXE Size: " + juce::String(exeSize) + " bytes");
-    DBG("EXE Modified: " + exeModTime.toString(true, true, true, true));
 
-    // Declare exeHash at function scope so it's accessible throughout
-    juce::String exeHash;
-
-    // Check if already tracked FIRST (fast check, lazy loads installed_files.json)
+    // Check if already tracked
     if (versionManager->hasFile(exeName))
     {
-        auto existingInfo = versionManager->getFileInfo(exeName);
-        juce::Logger::writeToLog("Executable already tracked in installed_files.json");
-        juce::Logger::writeToLog("  Recorded hash: " + existingInfo.sha256);
-        juce::Logger::writeToLog("  Recorded version: " + existingInfo.version);
-        juce::Logger::writeToLog("  Recorded date: " + existingInfo.installedDate.toString(true, true, true, true));
-        
-        // OPTIMIZATION: Use file size + modification time as fast check before expensive hash
-        // If file size and mod time match, assume hash is still valid (very likely)
-        // Only calculate hash if size/time changed or we need to verify
-        bool needsHashCheck = true;
-        
-        // Fast check: compare file size (if we had it stored, but we don't currently)
-        // For now, we'll still do hash check but log that we're doing it
-        // TODO: Store file size in InstalledFileInfo for faster checks
-        
-        // Calculate hash only if needed (this is the expensive operation)
-        exeHash = HashVerifier::calculateSHA256(exePath);
-        if (!exeHash.isEmpty())
-        {
-            juce::Logger::writeToLog("  Current EXE hash: " + exeHash);
-            if (exeHash.equalsIgnoreCase(existingInfo.sha256))
-            {
-                juce::Logger::writeToLog("  ✅ Current EXE hash matches recorded hash");
-                juce::Logger::writeToLog("================================================");
-                return; // Everything matches, no update needed
-            }
-            else
-            {
-                juce::Logger::writeToLog("  ❌ Current EXE hash DOES NOT match recorded hash!");
-                juce::Logger::writeToLog("    This means the EXE on disk was modified/replaced since last registration");
-                juce::Logger::writeToLog("    Will verify against manifest and update record if it matches...");
-                
-                // Hash changed - verify against manifest and update if it matches
-                // This handles the case where EXE was rebuilt but installed_files.json is stale
-                auto cachedManifest = getCachedManifest();
-                if (!cachedManifest.isEmpty())
-                {
-                    try
-                    {
-                        auto json = juce::JSON::parse(cachedManifest);
-                        if (auto* obj = json.getDynamicObject())
-                        {
-                            auto currentVariant = versionManager->getCurrentVariant();
-                            auto variantsArray = obj->getProperty("variants");
-                            if (auto* variantsObj = variantsArray.getDynamicObject())
-                            {
-                                auto variantData = variantsObj->getProperty(currentVariant);
-                                if (auto* variantObj = variantData.getDynamicObject())
-                                {
-                                    auto filesObj = variantObj->getProperty("files");
-                                    if (auto* files = filesObj.getDynamicObject())
-                                    {
-                                        for (auto& prop : files->getProperties())
-                                        {
-                                            auto fileName = prop.name.toString();
-                                            if (fileName.equalsIgnoreCase(exeName))
-                                            {
-                                                if (auto* fileObj = prop.value.getDynamicObject())
-                                                {
-                                                    juce::String manifestHash = fileObj->getProperty("sha256").toString();
-                                                    juce::String version = fileObj->getProperty("version").toString();
-                                                    juce::int64 size = (juce::int64)fileObj->getProperty("size");
-                                                    
-                                                    if (exeHash.equalsIgnoreCase(manifestHash))
-                                                    {
-                                                        // Current EXE hash matches manifest - update the stale record!
-                                                        FileInfo info;
-                                                        info.relativePath = fileName;
-                                                        info.sha256 = manifestHash;
-                                                        info.version = version;
-                                                        info.size = size;
-                                                        info.critical = true;
-                                                        info.url = "";
-                                                        
-                                                        versionManager->updateFileRecord(fileName, info);
-                                                        versionManager->saveVersionInfo();
-                                                        
-                                                        juce::Logger::writeToLog("  ✅✅ Updated stale record! EXE hash now matches manifest");
-                                                        juce::Logger::writeToLog("    New hash: " + manifestHash);
-                                                        juce::Logger::writeToLog("    New version: " + version);
-                                                        juce::Logger::writeToLog("================================================");
-                                                        return;
-                                                    }
-                                                    else
-                                                    {
-                                                        juce::Logger::writeToLog("  ❌ Current EXE hash doesn't match manifest either");
-                                                        juce::Logger::writeToLog("    Local hash:  " + exeHash);
-                                                        juce::Logger::writeToLog("    Manifest hash: " + manifestHash);
-                                                        juce::Logger::writeToLog("    EXE needs update");
-                                                        juce::Logger::writeToLog("================================================");
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        juce::Logger::writeToLog("  ⚠️ EXE not found in manifest");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch (const std::exception& e)
-                    {
-                        juce::Logger::writeToLog("  ⚠️ Error parsing manifest: " + juce::String(e.what()));
-                    }
-                }
-                else
-                {
-                    juce::Logger::writeToLog("  ⚠️ No cached manifest available to verify");
-                }
-            }
-        }
-        else
-        {
-            juce::Logger::writeToLog("  ⚠️ Could not calculate current hash (file may be locked)");
-        }
-        juce::Logger::writeToLog("================================================");
+        // Already tracked - no action needed
+        DBG("registerRunningExecutable: " + exeName + " already tracked");
         return;
     }
 
-    juce::Logger::writeToLog("Executable NOT tracked - will attempt to register");
-    DBG("Executable NOT tracked - will attempt to register");
+    DBG("registerRunningExecutable: " + exeName + " not tracked, checking manifest...");
 
-    // Calculate hash if not already calculated (this is the expensive operation)
-    if (exeHash.isEmpty())
-    {
-        exeHash = HashVerifier::calculateSHA256(exePath);
-    }
-    
-    // Check if hash calculation succeeded
-    if (exeHash.isEmpty())
-    {
-        juce::Logger::writeToLog("❌ Could not calculate hash (file may be locked)");
-        juce::Logger::writeToLog("================================================");
-        DBG("❌ Could not calculate hash (file may be locked)");
-        DBG("================================================");
-        return;
-    }
-
-    juce::Logger::writeToLog("Calculated EXE hash: " + exeHash);
-    DBG("Calculated EXE hash: " + exeHash);
-
-    // Try cached manifest
+    // Try cached manifest to find EXE entry
     auto cachedManifest = getCachedManifest();
 
     if (cachedManifest.isEmpty())
     {
-        juce::Logger::writeToLog("⚠️ No cached manifest - will verify later when manifest is fetched");
-        juce::Logger::writeToLog("================================================");
+        // No cached manifest - will verify when manifest is fetched
+        DBG("registerRunningExecutable: No cached manifest available");
         return;
     }
-
-    juce::Logger::writeToLog("Found cached manifest, checking for EXE entry...");
 
     try
     {
@@ -706,63 +549,49 @@ void UpdateManager::registerRunningExecutable()
                         for (auto& prop : files->getProperties())
                         {
                             auto fileName = prop.name.toString();
-                            
+
                             // Check if this is the executable file (EXACT MATCH ONLY)
                             if (fileName.equalsIgnoreCase(exeName))
                             {
-                                DBG("✅ Found exact match for running EXE: " + fileName);
-                                
                                 if (auto* fileObj = prop.value.getDynamicObject())
                                 {
-                                    juce::String manifestHash = fileObj->getProperty("sha256").toString();
-                                    juce::String version = fileObj->getProperty("version").toString();
-                                    juce::int64 size = (juce::int64)fileObj->getProperty("size");
-                                    
-                                    juce::Logger::writeToLog("Found EXE in manifest:");
-                                    juce::Logger::writeToLog("  Manifest hash: " + manifestHash);
-                                    juce::Logger::writeToLog("  Manifest version: " + version);
-                                    juce::Logger::writeToLog("  Manifest size: " + juce::String(size) + " bytes");
-                                    juce::Logger::writeToLog("  Local EXE hash: " + exeHash);
-                                    juce::Logger::writeToLog("  Local EXE size: " + juce::String(exePath.getSize()) + " bytes");
-                                    
-                                    // Compare hashes
-                                    if (exeHash.equalsIgnoreCase(manifestHash))
+                                    juce::int64 manifestSize =
+                                        (juce::int64)fileObj->getProperty("size");
+                                    juce::String version =
+                                        fileObj->getProperty("version").toString();
+                                    juce::String manifestHash =
+                                        fileObj->getProperty("sha256").toString();
+
+                                    // Use SIZE comparison (fast) instead of hash
+                                    if (exeSize == manifestSize)
                                     {
-                                        // Hash matches! Register as installed
+                                        // Size matches! Register as installed
                                         FileInfo info;
                                         info.relativePath = fileName;
                                         info.sha256 = manifestHash;
                                         info.version = version;
-                                        info.size = size;
+                                        info.size = manifestSize;
                                         info.critical = true;
                                         info.url = "";
-                                        
+
                                         versionManager->updateFileRecord(fileName, info);
                                         versionManager->saveVersionInfo();
-                                        juce::Logger::writeToLog("✅✅ EXE verified and registered: " + fileName);
-                                        juce::Logger::writeToLog("  Saved to: " + versionManager->getVersionFile().getFullPathName());
-                                        juce::Logger::writeToLog("================================================");
+                                        DBG("registerRunningExecutable: Registered " + exeName +
+                                            " (size match)");
                                         return;
                                     }
                                     else
                                     {
-                                        juce::Logger::writeToLog("❌ Hash mismatch for running EXE");
-                                        juce::Logger::writeToLog("  Manifest hash: " + manifestHash);
-                                        juce::Logger::writeToLog("  Local hash:    " + exeHash);
-                                        juce::Logger::writeToLog("  Size match: " + juce::String(exePath.getSize() == size ? "YES" : "NO"));
-                                        juce::Logger::writeToLog("  ⚠️ Local EXE is different from manifest - needs update");
-                                        juce::Logger::writeToLog("  ⚠️ EXE will NOT be registered (will show as Pending)");
-                                        juce::Logger::writeToLog("================================================");
-                                        // Don't register - needs update
+                                        DBG("registerRunningExecutable: Size mismatch - Local: " +
+                                            juce::String(exeSize) +
+                                            " Manifest: " + juce::String(manifestSize));
                                         return;
                                     }
                                 }
                             }
                         }
-                        
-                        juce::Logger::writeToLog("❌ Running EXE not found in manifest: " + exeName);
-                        juce::Logger::writeToLog("  This means the manifest doesn't contain an entry for the running EXE");
-                        juce::Logger::writeToLog("================================================");
+
+                        DBG("registerRunningExecutable: EXE not found in manifest: " + exeName);
                     }
                 }
             }
@@ -770,20 +599,18 @@ void UpdateManager::registerRunningExecutable()
     }
     catch (const std::exception& e)
     {
-        juce::Logger::writeToLog("❌ Error verifying executable: " + juce::String(e.what()));
-        juce::Logger::writeToLog("================================================");
-        // Don't fail - will try again later
+        DBG("registerRunningExecutable: Error - " + juce::String(e.what()));
     }
 }
 
 juce::File UpdateManager::getInstallDirectory() const
 {
-    return juce::File::getSpecialLocation(juce::File::currentExecutableFile)
-        .getParentDirectory();
+    return juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
 }
 
 juce::File UpdateManager::createUpdateManifest(
-    const juce::Array<FileInfo>& files, const juce::File& tempDir)
+    const juce::Array<FileInfo>& files,
+    const juce::File&            tempDir)
 {
     auto manifestFile = tempDir.getChildFile("update_manifest.json");
 

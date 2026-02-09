@@ -151,24 +151,61 @@ endif()
 # ==============================================================================
 # Essentia - Music Information Retrieval and Audio Analysis
 # ==============================================================================
-set(ESSENTIA_DIR "${CMAKE_SOURCE_DIR}/../vendor/essentia-2.1_beta5" CACHE PATH "Path to Essentia installation")
+option(ENABLE_ESSENTIA "Enable Essentia audio analysis library" ON)
 
-if(NOT EXISTS "${ESSENTIA_DIR}/src/essentia/essentia.h")
-    message(WARNING "Essentia not found at ${ESSENTIA_DIR}. Essentia modules will be disabled.")
+if(NOT ENABLE_ESSENTIA)
+    message(STATUS "Essentia disabled (set ENABLE_ESSENTIA=ON to enable)")
+    set(ESSENTIA_FOUND FALSE CACHE BOOL "Essentia library found" FORCE)
+else()
+
+# Try multiple possible Essentia directory names
+set(ESSENTIA_POSSIBLE_NAMES
+    "essentia-2.1_beta5"
+    "essentia-master"
+    "essentia"
+)
+
+set(ESSENTIA_DIR "" CACHE PATH "Path to Essentia installation")
+set(ESSENTIA_FOUND FALSE)
+
+foreach(ESSENTIA_NAME ${ESSENTIA_POSSIBLE_NAMES})
+    set(ESSENTIA_TRY_PATH "${CMAKE_SOURCE_DIR}/../vendor/${ESSENTIA_NAME}")
+    if(EXISTS "${ESSENTIA_TRY_PATH}/src/essentia/essentia.h")
+        set(ESSENTIA_DIR "${ESSENTIA_TRY_PATH}" CACHE PATH "Path to Essentia installation" FORCE)
+        set(ESSENTIA_FOUND TRUE)
+        message(STATUS "✓ Essentia found at ${ESSENTIA_DIR}")
+        break()
+    endif()
+endforeach()
+
+if(NOT ESSENTIA_FOUND)
+    message(WARNING "Essentia not found in any of: ${ESSENTIA_POSSIBLE_NAMES}. Essentia modules will be disabled.")
     unset(ESSENTIA_FOUND CACHE)
     set(ESSENTIA_FOUND FALSE CACHE BOOL "Essentia library found" FORCE)
 else()
-    message(STATUS "✓ Essentia found at ${ESSENTIA_DIR}")
+    # ESSENTIA_FOUND and ESSENTIA_DIR already set in the loop above
     unset(ESSENTIA_FOUND CACHE)
     set(ESSENTIA_FOUND TRUE CACHE BOOL "Essentia library found" FORCE)
     
     # --------------------------------------------------------------------------
-    # Essentia Source Integration (using KissFFT)
+    # Essentia Source Integration (Full build with Streaming Framework)
     # --------------------------------------------------------------------------
     
-    # Gather Source Files
+    # Gather Source Files - Core
     file(GLOB ESSENTIA_CORE_SRCS "${ESSENTIA_DIR}/src/essentia/*.cpp")
     file(GLOB ESSENTIA_UTILS_SRCS "${ESSENTIA_DIR}/src/essentia/utils/*.cpp")
+    
+    # Gather Streaming Framework Sources (required by most algorithms)
+    file(GLOB ESSENTIA_STREAMING_SRCS "${ESSENTIA_DIR}/src/essentia/streaming/*.cpp")
+    file(GLOB ESSENTIA_STREAMING_ALGO_SRCS "${ESSENTIA_DIR}/src/essentia/streaming/algorithms/*.cpp")
+    
+    # Gather Scheduler/Network Sources
+    file(GLOB ESSENTIA_SCHEDULER_SRCS "${ESSENTIA_DIR}/src/essentia/scheduler/*.cpp")
+    
+    # Gather 3rdparty spline Sources
+    file(GLOB ESSENTIA_SPLINE_SRCS "${ESSENTIA_DIR}/src/3rdparty/spline/*.cpp")
+    
+    # Gather Algorithm Sources
     file(GLOB ESSENTIA_ALGO_STD_SRCS "${ESSENTIA_DIR}/src/algorithms/standard/*.cpp")
     file(GLOB ESSENTIA_ALGO_RHYTHM_SRCS "${ESSENTIA_DIR}/src/algorithms/rhythm/*.cpp")
     
@@ -179,14 +216,23 @@ else()
         "${KISS_FFT_DIR}/tools/kiss_fftr.c"
     )
     
-    # Filter out unwanted FFT implementations (FFTW, Accelerate)
+    # Filter out unwanted FFT implementations (FFTW, Accelerate - we use KissFFT)
     list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*fftw.*")
-    list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*ffta.*") # Accelerate
+    list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*ffta.*")
     list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*ifftw.*")
     list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*iffta.*")
     
-    # Filter out algorithms with external dependencies (libsamplerate)
-    list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*resample.*")
+    # Filter out algorithms with external dependencies
+    list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*resample.*")  # libsamplerate
+    list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*tensorfl.*")  # TensorFlow
+    list(FILTER ESSENTIA_ALGO_STD_SRCS EXCLUDE REGEX ".*gaia.*")      # Gaia
+    
+    # Filter out YAML-dependent files (requires libyaml)
+    list(FILTER ESSENTIA_UTILS_SRCS EXCLUDE REGEX ".*yaml.*")
+    list(FILTER ESSENTIA_UTILS_SRCS EXCLUDE REGEX ".*jsonconvert.*")
+    
+    # Filter out FFmpeg-dependent audio context (we'll use JUCE for audio I/O)
+    list(FILTER ESSENTIA_UTILS_SRCS EXCLUDE REGEX ".*audiocontext.*")
     
     # Filter out test files if any
     list(FILTER ESSENTIA_CORE_SRCS EXCLUDE REGEX ".*test.*")
@@ -195,6 +241,10 @@ else()
     add_library(essentia_lib STATIC
         ${ESSENTIA_CORE_SRCS}
         ${ESSENTIA_UTILS_SRCS}
+        ${ESSENTIA_STREAMING_SRCS}
+        ${ESSENTIA_STREAMING_ALGO_SRCS}
+        ${ESSENTIA_SCHEDULER_SRCS}
+        ${ESSENTIA_SPLINE_SRCS}
         ${ESSENTIA_ALGO_STD_SRCS}
         ${ESSENTIA_ALGO_RHYTHM_SRCS}
         ${KISS_FFT_SRCS}
@@ -202,6 +252,13 @@ else()
     
     target_include_directories(essentia_lib PUBLIC
         "${ESSENTIA_DIR}/src"
+        "${ESSENTIA_DIR}/src/essentia"                     # For "algorithm.h", "types.h", etc.
+        "${ESSENTIA_DIR}/src/essentia/streaming"           # For "streamingalgorithmwrapper.h"
+        "${ESSENTIA_DIR}/src/essentia/streaming/algorithms" # For "vectoroutput.h", "poolstorage.h"
+        "${ESSENTIA_DIR}/src/essentia/scheduler"           # For "network.h"
+        "${ESSENTIA_DIR}/src/essentia/utils"               # For "bpfutil.h"
+        "${ESSENTIA_DIR}/src/3rdparty"                     # For "kiss_fft130/kiss_fft.h"
+        "${ESSENTIA_DIR}/src/3rdparty/spline"              # For "splineutil.h"
         "${KISS_FFT_DIR}"
         "${KISS_FFT_DIR}/tools"
     )
@@ -211,13 +268,20 @@ else()
         __WINDOWS_DS__
         WIN32
         _USE_MATH_DEFINES
-        kiss_fft_scalar=float # Essentia uses float by default
+        NOMINMAX               # Prevent Windows min/max macros
+        kiss_fft_scalar=float  # Essentia uses float by default
+        HAVE_KISSFFT           # Use KissFFT backend
     )
+    
+    # Suppress some warnings for third-party code
+    if(MSVC)
+        target_compile_options(essentia_lib PRIVATE /W0)
+    endif()
     
     # Set ESSENTIA_LIBRARY variable for linking
     set(ESSENTIA_LIBRARY essentia_lib)
     
-    message(STATUS "  Essentia configured for source build (KissFFT backend)")
+    message(STATUS "  Essentia configured for source build (KissFFT + Streaming)")
     
     # Log Copy Commands
     if(EXISTS "${ESSENTIA_DIR}/models")
@@ -227,6 +291,8 @@ else()
         message(STATUS "  Essentia data Source: ${ESSENTIA_DIR}/data (will be copied to output/essentia/data)")
     endif()
 endif()
+
+endif() # ENABLE_ESSENTIA
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -448,18 +514,48 @@ if(ENABLE_OPENCV)
 include_directories(SYSTEM ${CUDAToolkit_INCLUDE_DIRS})
 
 # Check for standalone pre-built OpenCV
-set(OPENCV_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/../opencv_cuda_install")
+# Try multiple possible locations and structures
 set(OPENCV_PREBUILT FALSE)
 set(OPENCV_HAS_RELEASE FALSE)
 set(OPENCV_HAS_DEBUG FALSE)
 
-# Check if the standalone installation exists
-if(EXISTS "${OPENCV_INSTALL_PREFIX}/lib/opencv_world4130.lib")
-    set(OPENCV_HAS_RELEASE TRUE)
-endif()
-if(EXISTS "${OPENCV_INSTALL_PREFIX}/lib/opencv_world4130d.lib")
-    set(OPENCV_HAS_DEBUG TRUE)
-endif()
+# Possible install prefixes (in order of preference)
+set(OPENCV_POSSIBLE_PATHS
+    "${CMAKE_SOURCE_DIR}/opencv_cuda_install"           # Inside juce folder
+    "${CMAKE_SOURCE_DIR}/../opencv_cuda_install"        # At repo root
+)
+
+foreach(PREFIX_PATH ${OPENCV_POSSIBLE_PATHS})
+    if(NOT OPENCV_PREBUILT)
+        # Check different lib directory structures OpenCV uses
+        set(LIB_SEARCH_PATHS
+            "${PREFIX_PATH}/x64/vc17/staticlib"    # Static libs (MSVC 2022)
+            "${PREFIX_PATH}/x64/vc17/lib"          # Dynamic libs (MSVC 2022)
+            "${PREFIX_PATH}/lib"                   # Standard layout
+        )
+        
+        foreach(LIB_PATH ${LIB_SEARCH_PATHS})
+            if(EXISTS "${LIB_PATH}/opencv_world4130.lib")
+                set(OPENCV_INSTALL_PREFIX "${PREFIX_PATH}")
+                set(OPENCV_LIB_DIR "${LIB_PATH}")
+                set(OPENCV_HAS_RELEASE TRUE)
+                break()
+            endif()
+        endforeach()
+        
+        # Also check for debug libs
+        foreach(LIB_PATH ${LIB_SEARCH_PATHS})
+            if(EXISTS "${LIB_PATH}/opencv_world4130d.lib")
+                set(OPENCV_HAS_DEBUG TRUE)
+                break()
+            endif()
+        endforeach()
+        
+        if(OPENCV_HAS_RELEASE OR OPENCV_HAS_DEBUG)
+            set(OPENCV_PREBUILT TRUE)
+        endif()
+    endif()
+endforeach()
 
 if(OPENCV_HAS_RELEASE OR OPENCV_HAS_DEBUG)
     # Found standalone OpenCV - use find_package() to get everything
@@ -483,7 +579,15 @@ if(OPENCV_HAS_RELEASE OR OPENCV_HAS_DEBUG)
     message(STATUS "")
     
     # Use find_package to get ALL transitive dependencies automatically
-    set(OpenCV_DIR "${OPENCV_INSTALL_PREFIX}/lib/cmake/OpenCV")
+    # Try multiple possible config locations
+    if(EXISTS "${OPENCV_INSTALL_PREFIX}/OpenCVConfig.cmake")
+        set(OpenCV_DIR "${OPENCV_INSTALL_PREFIX}")
+    elseif(EXISTS "${OPENCV_INSTALL_PREFIX}/x64/vc17/staticlib/OpenCVConfig.cmake")
+        set(OpenCV_DIR "${OPENCV_INSTALL_PREFIX}/x64/vc17/staticlib")
+    elseif(EXISTS "${OPENCV_INSTALL_PREFIX}/lib/cmake/OpenCV/OpenCVConfig.cmake")
+        set(OpenCV_DIR "${OPENCV_INSTALL_PREFIX}/lib/cmake/OpenCV")
+    endif()
+    message(STATUS "  - OpenCV_DIR: ${OpenCV_DIR}")
     find_package(OpenCV 4.13 REQUIRED)
     
     if(NOT OpenCV_FOUND)
@@ -499,6 +603,8 @@ if(OPENCV_HAS_RELEASE OR OPENCV_HAS_DEBUG)
     set(opencv_SOURCE_DIR "${OPENCV_INSTALL_PREFIX}/include")
     set(OPENCV_BUILD_DIR "${OPENCV_INSTALL_PREFIX}/include")
     set(opencv_contrib_SOURCE_DIR "${OPENCV_INSTALL_PREFIX}/include")
+    # Pre-built OpenCV has haarcascades in /etc/ not /data/
+    set(OPENCV_DATA_DIR "${OPENCV_INSTALL_PREFIX}/etc")
     
 else()
     message(STATUS "")
@@ -630,6 +736,9 @@ else()
         set(CMAKE_CXX_FLAGS "${SAVED_CMAKE_CXX_FLAGS} /FS")
         set(CMAKE_C_FLAGS "${SAVED_CMAKE_C_FLAGS} /FS")
     endif()
+    
+    # Source-built OpenCV has haarcascades in /data/
+    set(OPENCV_DATA_DIR "${opencv_SOURCE_DIR}/data")
 endif()
 
 # ==============================================================================
@@ -638,13 +747,149 @@ endif()
 # Set OpenCV link libraries based on whether we're using pre-built or source-built
 
 if(OPENCV_PREBUILT)
-    # Pre-built: Use ${OpenCV_LIBS} which includes all transitive dependencies
-    set(OPENCV_LINK_LIBS ${OpenCV_LIBS})
-    message(STATUS "Using pre-built OpenCV: ${OpenCV_LIBS}")
+    # Pre-built: Our pre-built uses opencv_world (single combined library)
+    # We need to link opencv_world directly, not the individual modules from OpenCV_LIBS
+    # because we built with BUILD_opencv_world=ON
+    find_library(OPENCV_WORLD_LIB 
+        NAMES opencv_world4130 opencv_world
+        PATHS "${OPENCV_LIB_DIR}" "${OPENCV_INSTALL_PREFIX}/lib"
+        NO_DEFAULT_PATH
+    )
+    if(OPENCV_WORLD_LIB)
+        set(OPENCV_LINK_LIBS "${OPENCV_WORLD_LIB}")
+        message(STATUS "Using pre-built OpenCV: ${OPENCV_WORLD_LIB}")
+    else()
+        # Fallback to OpenCV_LIBS if world lib not found (shouldn't happen)
+        set(OPENCV_LINK_LIBS ${OpenCV_LIBS})
+        message(STATUS "Using pre-built OpenCV modules: ${OpenCV_LIBS}")
+    endif()
+    
+    # Pre-built OpenCV includes 3rdparty libraries in the same directory
+    # These MUST be linked for static opencv_world to resolve all symbols
+    set(OPENCV_3RDPARTY_LIBS "")
+    set(OPENCV_3RDPARTY_NAMES
+        zlib
+        libpng
+        libjpeg-turbo
+        libtiff
+        libwebp
+        libopenjp2
+        IlmImf           # OpenEXR
+        libprotobuf      # For DNN/Caffe
+        ade              # For DNN graph
+        ittnotify        # Intel threading
+    )
+    
+    foreach(LIB_NAME ${OPENCV_3RDPARTY_NAMES})
+        find_library(OPENCV_3RDPARTY_${LIB_NAME}
+            NAMES ${LIB_NAME}
+            PATHS "${OPENCV_LIB_DIR}"
+            NO_DEFAULT_PATH
+        )
+        if(OPENCV_3RDPARTY_${LIB_NAME})
+            list(APPEND OPENCV_3RDPARTY_LIBS "${OPENCV_3RDPARTY_${LIB_NAME}}")
+            message(STATUS "  Found 3rdparty: ${LIB_NAME}")
+        endif()
+    endforeach()
+    
+    if(OPENCV_3RDPARTY_LIBS)
+        message(STATUS "Pre-built OpenCV 3rdparty libs: ${OPENCV_3RDPARTY_LIBS}")
+    endif()
 else()
     # Source-built: Use the opencv_world target directly
+    # OpenCV's opencv_world static library requires all 3rdparty dependencies to be linked explicitly
     set(OPENCV_LINK_LIBS opencv_world)
     message(STATUS "Using source-built OpenCV: opencv_world target")
+    
+    # Collect OpenCV's 3rdparty library targets that opencv_world depends on
+    # These are built by OpenCV's CMake and need to be linked for static builds
+    set(OPENCV_3RDPARTY_LIBS "")
+    
+    # Image codecs
+    if(TARGET libpng)
+        list(APPEND OPENCV_3RDPARTY_LIBS libpng)
+    endif()
+    if(TARGET libjpeg-turbo)
+        list(APPEND OPENCV_3RDPARTY_LIBS libjpeg-turbo)
+    endif()
+    if(TARGET libtiff)
+        list(APPEND OPENCV_3RDPARTY_LIBS libtiff)
+    endif()
+    if(TARGET libwebp)
+        list(APPEND OPENCV_3RDPARTY_LIBS libwebp)
+    endif()
+    if(TARGET libopenjp2)
+        list(APPEND OPENCV_3RDPARTY_LIBS libopenjp2)
+    endif()
+    if(TARGET IlmImf)
+        list(APPEND OPENCV_3RDPARTY_LIBS IlmImf)
+    endif()
+    
+    # Compression
+    if(TARGET zlib)
+        list(APPEND OPENCV_3RDPARTY_LIBS zlib)
+    endif()
+    
+    # DNN dependencies
+    if(TARGET libprotobuf)
+        list(APPEND OPENCV_3RDPARTY_LIBS libprotobuf)
+    endif()
+    if(TARGET ade)
+        list(APPEND OPENCV_3RDPARTY_LIBS ade)
+    endif()
+    
+    # Intel performance library
+    if(TARGET ittnotify)
+        list(APPEND OPENCV_3RDPARTY_LIBS ittnotify)
+    endif()
+    
+    if(OPENCV_3RDPARTY_LIBS)
+        message(STATUS "OpenCV 3rdparty libs to link: ${OPENCV_3RDPARTY_LIBS}")
+    endif()
+endif()
+
+# ==============================================================================
+# CUDA Libraries for OpenCV DNN CUDA Backend
+# ==============================================================================
+# When OpenCV is built with CUDA support, we need cuBLAS and cuDNN for DNN operations
+set(OPENCV_CUDA_LIBS "")
+
+if(ENABLE_CUDA AND CUDAToolkit_FOUND)
+    # cuBLAS - required for DNN CUDA backend
+    if(TARGET CUDA::cublas)
+        list(APPEND OPENCV_CUDA_LIBS CUDA::cublas)
+        message(STATUS "✓ cuBLAS found for OpenCV DNN")
+    elseif(CUDA_cublas_LIBRARY)
+        list(APPEND OPENCV_CUDA_LIBS ${CUDA_cublas_LIBRARY})
+        message(STATUS "✓ cuBLAS found at: ${CUDA_cublas_LIBRARY}")
+    else()
+        find_library(CUBLAS_LIB NAMES cublas HINTS "${CUDAToolkit_LIBRARY_DIR}" "${CUDA_TOOLKIT_ROOT_DIR}/lib/x64")
+        if(CUBLAS_LIB)
+            list(APPEND OPENCV_CUDA_LIBS ${CUBLAS_LIB})
+            message(STATUS "✓ cuBLAS found at: ${CUBLAS_LIB}")
+        endif()
+    endif()
+    
+    # cuDNN - required for DNN CUDA backend
+    if(CUDNN_LIBRARY)
+        list(APPEND OPENCV_CUDA_LIBS ${CUDNN_LIBRARY})
+        message(STATUS "✓ cuDNN for OpenCV: ${CUDNN_LIBRARY}")
+    elseif(CUDNN_FOUND)
+        find_library(CUDNN_LIB NAMES cudnn cudnn8 HINTS "${CUDNN_INCLUDE_DIR}/../lib/x64" "${CUDAToolkit_LIBRARY_DIR}")
+        if(CUDNN_LIB)
+            list(APPEND OPENCV_CUDA_LIBS ${CUDNN_LIB})
+            message(STATUS "✓ cuDNN found at: ${CUDNN_LIB}")
+        endif()
+    endif()
+    
+    # CUDA runtime (usually already linked, but ensure it's there)
+    if(TARGET CUDA::cudart)
+        list(APPEND OPENCV_CUDA_LIBS CUDA::cudart)
+    endif()
+    
+    if(OPENCV_CUDA_LIBS)
+        message(STATUS "OpenCV CUDA libs to link: ${OPENCV_CUDA_LIBS}")
+    endif()
 endif()
 
 # Explicitly add opencv_contrib cudacodec include (after source dirs are populated)
@@ -709,6 +954,21 @@ else()
     # ASIO is Windows-only (macOS uses CoreAudio, Linux uses ALSA/JACK)
     set(ASIO_SDK_FOUND FALSE)
     message(STATUS "ASIO not applicable on this platform (Windows-only)")
+endif()
+
+# ==============================================================================
+# yt-dlp (YouTube Downloader - external executable)
+# ==============================================================================
+set(YTDLP_DIR "${CMAKE_SOURCE_DIR}/../vendor/yt-dlp" CACHE PATH "Path to yt-dlp")
+set(YTDLP_FOUND FALSE)
+
+if(EXISTS "${YTDLP_DIR}/yt-dlp.exe")
+    message(STATUS "✓ yt-dlp found at ${YTDLP_DIR}")
+    set(YTDLP_FOUND TRUE)
+    set(YTDLP_EXECUTABLE "${YTDLP_DIR}/yt-dlp.exe")
+else()
+    message(WARNING "yt-dlp not found at ${YTDLP_DIR}/yt-dlp.exe")
+    message(STATUS "  YouTube Source module will be compiled but may fail at runtime if yt-dlp.exe is missing.")
 endif()
 
 # ==============================================================================
@@ -824,6 +1084,217 @@ endif()
 # --------------------------------------------------------------
 # Rubber Band (optional, real-time timestretcher/pitch-shifter)
 # --------------------------------------------------------------
+
+# ==============================================================================
+# NDI SDK Configuration (Network Device Interface for video streaming)
+# ==============================================================================
+# Download from: https://ndi.video/for-developers/ndi-sdk/
+# Extract to: vendor/ndi/ (should contain Include/ and Lib/ subdirectories)
+set(NDI_SDK_DIR "${CMAKE_SOURCE_DIR}/../vendor/ndi" CACHE PATH "Path to NDI SDK")
+set(NDI_FOUND FALSE)
+
+if(ENABLE_OPENCV)
+    # Check for NDI SDK header
+    if(EXISTS "${NDI_SDK_DIR}/Include/Processing.NDI.Lib.h")
+        set(NDI_FOUND TRUE)
+        message(STATUS "✓ NDI SDK found at ${NDI_SDK_DIR}")
+        
+        set(NDI_INCLUDE_DIR "${NDI_SDK_DIR}/Include")
+        
+        # Find NDI library (Windows)
+        if(WIN32)
+            # NDI uses runtime DLL loading, we only need the import library
+            find_library(NDI_LIBRARY
+                NAMES Processing.NDI.Lib.x64
+                PATHS "${NDI_SDK_DIR}/Lib/x64"
+                NO_DEFAULT_PATH
+            )
+            
+            if(NDI_LIBRARY)
+                message(STATUS "  - Include: ${NDI_INCLUDE_DIR}")
+                message(STATUS "  - Library: ${NDI_LIBRARY}")
+            else()
+                message(WARNING "NDI import library not found. Trying header-only mode with runtime loading.")
+                # NDI supports pure runtime loading - we can still use it
+            endif()
+        else()
+            # Linux/macOS - NDI uses runtime loading
+            message(STATUS "  - Include: ${NDI_INCLUDE_DIR}")
+            message(STATUS "  - Using runtime DLL loading")
+        endif()
+    else()
+        message(STATUS "NDI SDK not found at ${NDI_SDK_DIR}. NDI modules will be disabled.")
+        message(STATUS "  Download from: https://ndi.video/for-developers/ndi-sdk/")
+    endif()
+else()
+    message(STATUS "NDI disabled (requires OpenCV)")
+endif()
+
+# ==============================================================================
+# librtlsdr (SDR Receiver)
+# ==============================================================================
+set(LIBRTLSDR_FOUND FALSE)
+find_package(librtlsdr CONFIG QUIET)
+if(librtlsdr_FOUND)
+    message(STATUS "✓ librtlsdr found via CMake config")
+    set(LIBRTLSDR_FOUND TRUE)
+    set(LIBRTLSDR_LIBRARIES librtlsdr::librtlsdr)
+else()
+    # Fallback to pkg-config
+     if(NOT WIN32)
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(LIBRTLSDR_PKG librtlsdr)
+            if(LIBRTLSDR_PKG_FOUND)
+                set(LIBRTLSDR_FOUND TRUE)
+                set(LIBRTLSDR_INCLUDE_DIRS ${LIBRTLSDR_PKG_INCLUDE_DIRS})
+                set(LIBRTLSDR_LIBRARIES ${LIBRTLSDR_PKG_LIBRARIES})
+                message(STATUS "✓ librtlsdr found via pkg-config")
+            endif()
+        endif()
+    endif()
+endif()
+
+if(NOT LIBRTLSDR_FOUND)
+    message(STATUS "librtlsdr not found. SDR Receiver module will be disabled.")
+    message(STATUS "  Install via: vcpkg install librtlsdr:x64-windows")
+endif()
+
+# ==============================================================================
+# librtlsdr (SDR Receiver)
+# ==============================================================================
+set(LIBRTLSDR_FOUND FALSE)
+find_package(rtlsdr CONFIG QUIET)
+if(rtlsdr_FOUND)
+    message(STATUS "✓ rtlsdr found via CMake config")
+    set(LIBRTLSDR_FOUND TRUE)
+    set(LIBRTLSDR_LIBRARIES rtlsdr::rtlsdr)
+else()
+    # Fallback to pkg-config
+     if(NOT WIN32)
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(LIBRTLSDR_PKG librtlsdr)
+            if(LIBRTLSDR_PKG_FOUND)
+                set(LIBRTLSDR_FOUND TRUE)
+                set(LIBRTLSDR_INCLUDE_DIRS ${LIBRTLSDR_PKG_INCLUDE_DIRS})
+                set(LIBRTLSDR_LIBRARIES ${LIBRTLSDR_PKG_LIBRARIES})
+                message(STATUS "✓ librtlsdr found via pkg-config")
+            endif()
+        endif()
+    endif()
+endif()
+
+if(NOT LIBRTLSDR_FOUND)
+    message(STATUS "librtlsdr not found. SDR Receiver module will be disabled.")
+    message(STATUS "  Install via: vcpkg install librtlsdr:x64-windows")
+endif()
+
+# ==============================================================================
+# SRT (Secure Reliable Transport) - Low-latency streaming protocol
+# ==============================================================================
+# Install via vcpkg: vcpkg install libsrt:x64-windows
+set(SRT_FOUND FALSE)
+
+# Try to find SRT via CMake config (vcpkg provides this)
+find_package(srt QUIET CONFIG)
+if(srt_FOUND)
+    message(STATUS "✓ SRT found via CMake config")
+    set(SRT_FOUND TRUE)
+    set(SRT_LIBRARIES srt::srt)
+else()
+    # Fallback: Try pkg-config on Linux/Mac
+    if(NOT WIN32)
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(SRT_PKG srt)
+            if(SRT_PKG_FOUND)
+                set(SRT_FOUND TRUE)
+                set(SRT_INCLUDE_DIRS ${SRT_PKG_INCLUDE_DIRS})
+                set(SRT_LIBRARIES ${SRT_PKG_LIBRARIES})
+                message(STATUS "✓ SRT found via pkg-config")
+            endif()
+        endif()
+    endif()
+    
+    # Fallback: Manual search (vcpkg default paths)
+    if(NOT SRT_FOUND)
+        find_path(SRT_INCLUDE_DIR NAMES srt/srt.h
+            PATHS 
+                "${CMAKE_SOURCE_DIR}/../vendor/srt/include"
+                "$ENV{VCPKG_ROOT}/installed/x64-windows/include"
+                "C:/vcpkg/installed/x64-windows/include"
+                "/usr/include"
+                "/usr/local/include"
+        )
+        find_library(SRT_LIBRARY NAMES srt
+            PATHS
+                "${CMAKE_SOURCE_DIR}/../vendor/srt/lib"
+                "$ENV{VCPKG_ROOT}/installed/x64-windows/lib"
+                "C:/vcpkg/installed/x64-windows/lib"
+                "/usr/lib"
+                "/usr/local/lib"
+        )
+        
+        if(SRT_INCLUDE_DIR AND SRT_LIBRARY)
+            set(SRT_FOUND TRUE)
+            set(SRT_INCLUDE_DIRS ${SRT_INCLUDE_DIR})
+            set(SRT_LIBRARIES ${SRT_LIBRARY})
+            message(STATUS "✓ SRT found manually")
+            message(STATUS "  - Include: ${SRT_INCLUDE_DIR}")
+            message(STATUS "  - Library: ${SRT_LIBRARY}")
+            
+            # Find SRT DLL for runtime copy
+            find_file(SRT_DLL srt.dll
+                PATHS 
+                    "$ENV{VCPKG_ROOT}/installed/x64-windows/bin"
+                    "C:/vcpkg/installed/x64-windows/bin"
+                NO_DEFAULT_PATH
+            )
+        endif()
+    endif()
+endif()
+
+if(NOT SRT_FOUND)
+    message(STATUS "SRT not found. SRT Receiver module will be disabled.")
+    message(STATUS "  Install via: vcpkg install libsrt:x64-windows")
+endif()
+
+# ==============================================================================
+# C++/WinRT for Bluetooth Audio and System Audio (Windows only)
+# ==============================================================================
+set(CPPWINRT_AVAILABLE FALSE)
+
+if(WIN32)
+    # Check for Windows SDK with C++/WinRT support (10.0.19041.0+)
+    # AudioPlaybackConnection requires Windows 10 2004 (build 19041)
+    # We check for the WinRT header availability
+    include(CheckIncludeFileCXX)
+    check_include_file_cxx("winrt/Windows.Media.Audio.h" HAS_WINRT_HEADERS)
+    
+    if(HAS_WINRT_HEADERS)
+        set(CPPWINRT_AVAILABLE TRUE)
+        message(STATUS "✓ C++/WinRT available (Windows SDK)")
+    else()
+        # Try to detect SDK version from CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION
+        if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION)
+            if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION VERSION_GREATER_EQUAL "10.0.19041.0")
+                set(CPPWINRT_AVAILABLE TRUE)
+                message(STATUS "✓ C++/WinRT available (Windows SDK ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION})")
+            else()
+                message(STATUS "C++/WinRT requires Windows SDK 10.0.19041.0 or later")
+                message(STATUS "  Current: ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
+            endif()
+        else()
+            # Assume available on modern Windows builds
+            set(CPPWINRT_AVAILABLE TRUE)
+            message(STATUS "✓ C++/WinRT assumed available (Windows)")
+        endif()
+    endif()
+endif()
+
+# ==============================================================================
+
 set(USE_RUBBERBAND ON CACHE BOOL "Enable Rubber Band time/pitch processing")
 if (USE_RUBBERBAND)
   FetchContent_Declare(rubberband_fc
@@ -1086,6 +1557,8 @@ target_sources(ColliderApp PRIVATE
     Source/audio/modules/WebcamLoaderModule.cpp
     Source/audio/modules/VideoFileLoaderModule.h
     Source/audio/modules/VideoFileLoaderModule.cpp
+    Source/audio/modules/YouTubeSourceModule.h
+    Source/audio/modules/YouTubeSourceModule.cpp
     Source/audio/modules/FFmpegAudioReader.h
     Source/audio/modules/FFmpegAudioReader.cpp
     Source/audio/modules/TimeStretcherAudioSource.h
@@ -1118,6 +1591,21 @@ target_sources(ColliderApp PRIVATE
     Source/audio/modules/ContourDetectorModule.cpp
     Source/audio/modules/CropVideoModule.h
     Source/audio/modules/CropVideoModule.cpp
+    Source/audio/modules/NdiReceiverModule.h
+    Source/audio/modules/NdiReceiverModule.cpp
+    # Wireless/Streaming Audio Receivers
+    Source/audio/modules/SdrReceiverModule.h
+    Source/audio/modules/SdrReceiverModule.cpp
+    Source/audio/modules/InternetRadioReceiverModule.h
+    Source/audio/modules/InternetRadioReceiverModule.cpp
+    Source/audio/modules/SystemAudioCaptureModule.h
+    Source/audio/modules/SystemAudioCaptureModule.cpp
+    Source/audio/modules/SrtReceiverModule.h
+    Source/audio/modules/SrtReceiverModule.cpp
+    Source/audio/modules/RtmpReceiverModule.h
+    Source/audio/modules/RtmpReceiverModule.cpp
+    Source/audio/modules/BluetoothAudioReceiverModule.h
+    Source/audio/modules/BluetoothAudioReceiverModule.cpp
     Source/animation/AnimationData.h
     Source/animation/RawAnimationData.h
     Source/animation/RawAnimationData.cpp
@@ -1180,6 +1668,8 @@ target_link_libraries(ColliderApp PRIVATE
     tinygltf
     ufbx_static
     ${OPENCV_LINK_LIBS}
+    ${OPENCV_3RDPARTY_LIBS}  # OpenCV's 3rdparty deps (zlib, png, jpeg, etc.)
+    ${OPENCV_CUDA_LIBS}       # cuBLAS, cuDNN for DNN CUDA backend
     $<$<BOOL:${USE_RUBBERBAND}>:${RUBBERBAND_TARGET}>
     $<$<BOOL:${FFMPEG_FOUND}>:${AVFORMAT_LIBRARY}>
     $<$<BOOL:${FFMPEG_FOUND}>:${AVCODEC_LIBRARY}>
@@ -1190,17 +1680,42 @@ target_link_libraries(ColliderApp PRIVATE
     ${ONNXRUNTIME_DIR}/lib/onnxruntime.lib
 )
 
-# Link CUDA runtime for OpenCV CUDA symbols
-# Use CUDAToolkit::cudart if available, otherwise link directly
-if(TARGET CUDAToolkit::cudart)
-    target_link_libraries(ColliderApp PRIVATE CUDAToolkit::cudart)
-elseif(CUDA_CUDART_LIBRARY)
-    target_link_libraries(ColliderApp PRIVATE ${CUDA_CUDART_LIBRARY})
+# Link CUDA runtime for OpenCV CUDA symbols (legacy fallback, OPENCV_CUDA_LIBS above preferred)
+if(NOT OPENCV_CUDA_LIBS)
+    if(TARGET CUDAToolkit::cudart)
+        target_link_libraries(ColliderApp PRIVATE CUDAToolkit::cudart)
+    elseif(CUDA_CUDART_LIBRARY)
+        target_link_libraries(ColliderApp PRIVATE ${CUDA_CUDART_LIBRARY})
+    endif()
 endif()
 
 # Link Windows libraries for native camera enumeration (DirectShow)
 if(WIN32)
     target_link_libraries(ColliderApp PRIVATE ole32 strmiids)
+endif()
+
+# Link SRT if found (for SRT Receiver module)
+if(SRT_FOUND)
+    target_link_libraries(ColliderApp PRIVATE ${SRT_LIBRARIES})
+    if(SRT_INCLUDE_DIRS)
+        target_include_directories(ColliderApp PRIVATE ${SRT_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(ColliderApp PRIVATE HAS_SRT=1)
+endif()
+
+# Link librtlsdr if found
+if(LIBRTLSDR_FOUND)
+    target_link_libraries(ColliderApp PRIVATE ${LIBRTLSDR_LIBRARIES})
+    if(LIBRTLSDR_INCLUDE_DIRS)
+        target_include_directories(ColliderApp PRIVATE ${LIBRTLSDR_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(ColliderApp PRIVATE HAS_LIBRTLSDR=1)
+endif()
+
+# Link WinRT for Bluetooth Audio and System Audio Capture (Windows only)
+if(WIN32 AND CPPWINRT_AVAILABLE)
+    target_link_libraries(ColliderApp PRIVATE WindowsApp.lib)
+    target_compile_definitions(ColliderApp PRIVATE HAS_WINRT_AUDIO=1)
 endif()
 
 # Add include directories for ColliderApp
@@ -1539,6 +2054,8 @@ target_sources(PresetCreatorApp PRIVATE
     Source/audio/modules/WebcamLoaderModule.cpp
     Source/audio/modules/VideoFileLoaderModule.h
     Source/audio/modules/VideoFileLoaderModule.cpp
+    Source/audio/modules/YouTubeSourceModule.h
+    Source/audio/modules/YouTubeSourceModule.cpp
     Source/audio/modules/FFmpegAudioReader.h
     Source/audio/modules/FFmpegAudioReader.cpp
     Source/audio/modules/TimeStretcherAudioSource.h
@@ -1571,6 +2088,21 @@ target_sources(PresetCreatorApp PRIVATE
     Source/audio/modules/ContourDetectorModule.cpp
     Source/audio/modules/CropVideoModule.h
     Source/audio/modules/CropVideoModule.cpp
+    Source/audio/modules/NdiReceiverModule.h
+    Source/audio/modules/NdiReceiverModule.cpp
+    # Wireless/Streaming Audio Receivers
+    Source/audio/modules/SdrReceiverModule.h
+    Source/audio/modules/SdrReceiverModule.cpp
+    Source/audio/modules/InternetRadioReceiverModule.h
+    Source/audio/modules/InternetRadioReceiverModule.cpp
+    Source/audio/modules/SystemAudioCaptureModule.h
+    Source/audio/modules/SystemAudioCaptureModule.cpp
+    Source/audio/modules/SrtReceiverModule.h
+    Source/audio/modules/SrtReceiverModule.cpp
+    Source/audio/modules/RtmpReceiverModule.h
+    Source/audio/modules/RtmpReceiverModule.cpp
+    Source/audio/modules/BluetoothAudioReceiverModule.h
+    Source/audio/modules/BluetoothAudioReceiverModule.cpp
     Source/animation/AnimationData.h
     Source/animation/RawAnimationData.h
     Source/animation/RawAnimationData.cpp
@@ -1647,6 +2179,8 @@ target_include_directories(PresetCreatorApp PRIVATE
     # STK and Essentia headers
     $<$<BOOL:${STK_FOUND}>:${STK_SOURCE_DIR}/include>
     $<$<BOOL:${ESSENTIA_FOUND}>:${ESSENTIA_DIR}/src>
+    # NDI SDK headers
+    $<$<BOOL:${NDI_FOUND}>:${NDI_INCLUDE_DIR}>
 )
 
 # This target also needs the compile definitions
@@ -1661,6 +2195,8 @@ target_compile_definitions(PresetCreatorApp PRIVATE
     IMNODES_NAMESPACE=ImNodes
     IMNODES_STATIC_DEFINE
     PRESET_CREATOR_UI=1
+    # Prevent winsock.h/winsock2.h conflict on Windows
+    $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN>
     $<$<BOOL:${USE_RUBBERBAND}>:USE_RUBBERBAND=1>
     $<$<NOT:$<BOOL:${USE_RUBBERBAND}>>:USE_RUBBERBAND=0>
     $<$<BOOL:${CUDA_SUPPORT_ENABLED}>:WITH_CUDA_SUPPORT=1>
@@ -1670,6 +2206,8 @@ target_compile_definitions(PresetCreatorApp PRIVATE
     $<$<BOOL:${STK_FOUND}>:STK_FOUND=1>
     # Enable Essentia if found
     $<$<BOOL:${ESSENTIA_FOUND}>:ESSENTIA_FOUND=1>
+    # Enable NDI if found
+    $<$<BOOL:${NDI_FOUND}>:NDI_FOUND=1>
 )
 
 target_link_libraries(PresetCreatorApp PRIVATE
@@ -1690,7 +2228,9 @@ target_link_libraries(PresetCreatorApp PRIVATE
     glm::glm
     tinygltf
     ufbx_static
-    ${OPENCV_LINK_LIBS}  # Uses ${OpenCV_LIBS} for pre-built (includes all deps) or opencv_world for source-built
+    ${OPENCV_LINK_LIBS}       # opencv_world for source-built, or specific libs for pre-built
+    ${OPENCV_3RDPARTY_LIBS}   # OpenCV's 3rdparty deps (zlib, png, jpeg, protobuf, etc.)
+    ${OPENCV_CUDA_LIBS}       # cuBLAS, cuDNN for DNN CUDA backend
     $<$<BOOL:${USE_RUBBERBAND}>:${RUBBERBAND_TARGET}>
     $<$<BOOL:${FFMPEG_FOUND}>:${AVFORMAT_LIBRARY}>
     $<$<BOOL:${FFMPEG_FOUND}>:${AVCODEC_LIBRARY}>
@@ -1700,17 +2240,47 @@ target_link_libraries(PresetCreatorApp PRIVATE
     ${ONNXRUNTIME_DIR}/lib/onnxruntime.lib
 )
 
-# Link CUDA runtime for OpenCV CUDA symbols
-# Use CUDAToolkit::cudart if available, otherwise link directly
-if(TARGET CUDAToolkit::cudart)
-    target_link_libraries(PresetCreatorApp PRIVATE CUDAToolkit::cudart)
-elseif(CUDA_CUDART_LIBRARY)
-    target_link_libraries(PresetCreatorApp PRIVATE ${CUDA_CUDART_LIBRARY})
+# Link CUDA runtime for OpenCV CUDA symbols (legacy fallback, OPENCV_CUDA_LIBS above preferred)
+if(NOT OPENCV_CUDA_LIBS)
+    if(TARGET CUDAToolkit::cudart)
+        target_link_libraries(PresetCreatorApp PRIVATE CUDAToolkit::cudart)
+    elseif(CUDA_CUDART_LIBRARY)
+        target_link_libraries(PresetCreatorApp PRIVATE ${CUDA_CUDART_LIBRARY})
+    endif()
 endif()
 
 # Link Windows libraries for native camera enumeration (DirectShow)
 if(WIN32)
     target_link_libraries(PresetCreatorApp PRIVATE ole32 strmiids)
+endif()
+
+# Link NDI library if found
+if(NDI_FOUND AND NDI_LIBRARY)
+    target_link_libraries(PresetCreatorApp PRIVATE ${NDI_LIBRARY})
+endif()
+
+# Link SRT if found (for SRT Receiver module)
+if(SRT_FOUND)
+    target_link_libraries(PresetCreatorApp PRIVATE ${SRT_LIBRARIES})
+    if(SRT_INCLUDE_DIRS)
+        target_include_directories(PresetCreatorApp PRIVATE ${SRT_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(PresetCreatorApp PRIVATE HAS_SRT=1)
+endif()
+
+# Link WinRT for Bluetooth Audio and System Audio Capture (Windows only)
+if(WIN32 AND CPPWINRT_AVAILABLE)
+    target_link_libraries(PresetCreatorApp PRIVATE WindowsApp.lib)
+    target_compile_definitions(PresetCreatorApp PRIVATE HAS_WINRT_AUDIO=1)
+endif()
+
+# Link librtlsdr if found
+if(LIBRTLSDR_FOUND)
+    target_link_libraries(PresetCreatorApp PRIVATE ${LIBRTLSDR_LIBRARIES})
+    if(LIBRTLSDR_INCLUDE_DIRS)
+        target_include_directories(PresetCreatorApp PRIVATE ${LIBRTLSDR_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(PresetCreatorApp PRIVATE HAS_LIBRTLSDR=1)
 endif()
 
 # ==============================================================================
@@ -1743,6 +2313,11 @@ target_link_libraries(PikonUpdater
     juce::juce_cryptography
 )
 
+# Prevent winsock.h/winsock2.h conflict on Windows
+if(WIN32)
+    target_compile_definitions(PikonUpdater PRIVATE WIN32_LEAN_AND_MEAN)
+endif()
+
 # Console app (not GUI)
 set_target_properties(PikonUpdater PROPERTIES
     WIN32_EXECUTABLE FALSE
@@ -1772,13 +2347,37 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_DIR}/lib/onnxruntime_providers_shared.dll"
                 "$<TARGET_FILE_DIR:ColliderApp>"
-        # Copy OpenCV FFmpeg video backend DLL (if it exists - optional video codec)
-        # Path differs between pre-built and source-built OpenCV
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<IF:$<BOOL:${OPENCV_PREBUILT}>,${OPENCV_INSTALL_PREFIX}/bin/opencv_videoio_ffmpeg4140_64.dll,${CMAKE_BINARY_DIR}/bin/opencv_videoio_ffmpeg4140_64.dll>"
-                "$<TARGET_FILE_DIR:ColliderApp>"
-        || ${CMAKE_COMMAND} -E echo "Note: OpenCV FFmpeg DLL not found (optional video codec)"
+        # OpenCV FFmpeg DLL copying is handled separately below (if not pre-built static)
     )
+    
+    # Copy OpenCV FFmpeg video backend DLL (only for source-built OpenCV, pre-built is static)
+    if(NOT OPENCV_PREBUILT)
+        add_custom_command(
+            TARGET ColliderApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_BINARY_DIR}/bin/opencv_videoio_ffmpeg4140_64.dll"
+                    "$<TARGET_FILE_DIR:ColliderApp>"
+            COMMENT "Copying OpenCV FFmpeg DLL to ColliderApp (source-built)"
+        )
+    endif()
+    
+    # Copy SRT DLL if found (for SRT Receiver module)
+    if(SRT_FOUND AND SRT_DLL)
+        add_custom_command(
+            TARGET ColliderApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${SRT_DLL}"
+                    "$<TARGET_FILE_DIR:ColliderApp>"
+            COMMENT "Copying SRT DLL to ColliderApp"
+        )
+        add_custom_command(
+            TARGET PresetCreatorApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${SRT_DLL}"
+                    "$<TARGET_FILE_DIR:PresetCreatorApp>"
+            COMMENT "Copying SRT DLL to PresetCreatorApp"
+        )
+    endif()
     
     # Copy FFmpeg DLLs separately (if FFmpeg is found)
     # We need to copy each DLL individually to avoid generator expression issues
@@ -1850,6 +2449,7 @@ if(WIN32)
                         "$<TARGET_FILE_DIR:ColliderApp>/rawwaves"
                 COMMENT "Copying STK rawwaves to ColliderApp output directory"
             )
+
             add_custom_command(
                 TARGET PresetCreatorApp POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E echo "Copying STK rawwaves from: ${STK_SOURCE_DIR}/rawwaves"
@@ -1859,9 +2459,27 @@ if(WIN32)
                         "$<TARGET_FILE_DIR:PresetCreatorApp>/rawwaves"
                 COMMENT "Copying STK rawwaves to PresetCreatorApp output directory"
             )
+
         else()
             message(WARNING "STK rawwaves directory not found at ${STK_SOURCE_DIR}/rawwaves")
         endif()
+    endif()
+
+    if(YTDLP_FOUND)
+        add_custom_command(
+            TARGET ColliderApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${YTDLP_EXECUTABLE}"
+                    "$<TARGET_FILE_DIR:ColliderApp>"
+            COMMENT "Copying yt-dlp.exe to ColliderApp output directory"
+        )
+        add_custom_command(
+            TARGET PresetCreatorApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${YTDLP_EXECUTABLE}"
+                    "$<TARGET_FILE_DIR:PresetCreatorApp>"
+            COMMENT "Copying yt-dlp.exe to PresetCreatorApp output directory"
+        )
     endif()
     
     # ==============================================================================
@@ -1919,9 +2537,9 @@ if(WIN32)
     add_custom_command(
         TARGET ColliderApp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${opencv_SOURCE_DIR}/data/haarcascades/haarcascade_frontalface_default.xml"
+                "${OPENCV_DATA_DIR}/haarcascades/haarcascade_frontalface_default.xml"
                 "$<TARGET_FILE_DIR:ColliderApp>"
-        COMMENT "Copying OpenCV data to ColliderApp output directory"
+        COMMENT "Copying OpenCV haarcascade data to ColliderApp output directory"
     )
     add_custom_command(
         TARGET PresetCreatorApp POST_BUILD
@@ -1940,12 +2558,7 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_DIR}/lib/onnxruntime_providers_shared.dll"
                 "$<TARGET_FILE_DIR:PresetCreatorApp>"
-        # Copy OpenCV FFmpeg video backend DLL (if it exists - optional video codec)
-        # Path differs between pre-built and source-built OpenCV
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<IF:$<BOOL:${OPENCV_PREBUILT}>,${OPENCV_INSTALL_PREFIX}/bin/opencv_videoio_ffmpeg4140_64.dll,${CMAKE_BINARY_DIR}/bin/opencv_videoio_ffmpeg4140_64.dll>"
-                "$<TARGET_FILE_DIR:PresetCreatorApp>"
-        COMMAND ${CMAKE_COMMAND} -E echo "Note: OpenCV FFmpeg DLL copy attempted (optional video codec)"
+        # OpenCV FFmpeg DLL copying is handled separately below (if not pre-built static)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${PIPER_DIR}/espeak-ng-data"
                 "$<TARGET_FILE_DIR:PresetCreatorApp>/espeak-ng-data"
@@ -1954,10 +2567,21 @@ if(WIN32)
                 "${CMAKE_SOURCE_DIR}/assets"
                 "$<TARGET_FILE_DIR:PresetCreatorApp>/assets"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${opencv_SOURCE_DIR}/data/haarcascades/haarcascade_frontalface_default.xml"
+                "${OPENCV_DATA_DIR}/haarcascades/haarcascade_frontalface_default.xml"
                 "$<TARGET_FILE_DIR:PresetCreatorApp>"
         COMMENT "Copying Piper TTS, OpenPose, FFmpeg, and other runtime assets to PresetCreatorApp output directory"
     )
+    
+    # Copy OpenCV FFmpeg video backend DLL (only for source-built OpenCV, pre-built is static)
+    if(NOT OPENCV_PREBUILT)
+        add_custom_command(
+            TARGET PresetCreatorApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_BINARY_DIR}/bin/opencv_videoio_ffmpeg4140_64.dll"
+                    "$<TARGET_FILE_DIR:PresetCreatorApp>"
+            COMMENT "Copying OpenCV FFmpeg DLL to PresetCreatorApp (source-built)"
+        )
+    endif()
 
     add_custom_command(
         TARGET PresetCreatorApp POST_BUILD
@@ -2288,6 +2912,20 @@ target_sources(PikonRaditszAudioApp PRIVATE
     Source/audio/modules/AutomatoModuleProcessor.h
     Source/audio/modules/AutomatoModuleProcessor.cpp
     
+    # Wireless/Streaming Audio Receivers
+    Source/audio/modules/SdrReceiverModule.h
+    Source/audio/modules/SdrReceiverModule.cpp
+    Source/audio/modules/InternetRadioReceiverModule.h
+    Source/audio/modules/InternetRadioReceiverModule.cpp
+    Source/audio/modules/SystemAudioCaptureModule.h
+    Source/audio/modules/SystemAudioCaptureModule.cpp
+    Source/audio/modules/SrtReceiverModule.h
+    Source/audio/modules/SrtReceiverModule.cpp
+    Source/audio/modules/RtmpReceiverModule.h
+    Source/audio/modules/RtmpReceiverModule.cpp
+    Source/audio/modules/BluetoothAudioReceiverModule.h
+    Source/audio/modules/BluetoothAudioReceiverModule.cpp
+    
     # Animation Sources (Keep these as they are not OpenCV dependent)
     Source/animation/AnimationData.h
     Source/animation/RawAnimationData.h
@@ -2317,7 +2955,7 @@ add_custom_command(
     COMMENT "Copying splash screen image to executable directory"
 )
 
-# Include Directories (EXCLUDING OpenCV)
+# Include Directories (EXCLUDING OpenCV, but INCLUDING FFmpeg for audio streaming)
 target_include_directories(PikonRaditszAudioApp PRIVATE
     ${imgui_fc_SOURCE_DIR}
     ${imgui_fc_SOURCE_DIR}/backends
@@ -2329,7 +2967,8 @@ target_include_directories(PikonRaditszAudioApp PRIVATE
     ${CMAKE_SOURCE_DIR}/../soundtouch/include
     ${CMAKE_SOURCE_DIR}/../soundtouch/source/SoundTouch
     ${ufbx_SOURCE_DIR}
-    # NO FFMPEG
+    # FFmpeg for audio streaming (Internet Radio, RTMP)
+    $<$<BOOL:${FFMPEG_FOUND}>:${FFMPEG_INCLUDE_DIR}>
     # NO OPENCV
     $<$<BOOL:${USE_RUBBERBAND}>:${RUBBERBAND_INCLUDE_DIR}>
     # ASIO SDK headers (Windows only, conditional)
@@ -2353,6 +2992,8 @@ target_compile_definitions(PikonRaditszAudioApp PRIVATE
     IMNODES_STATIC_DEFINE
     PRESET_CREATOR_UI=1
     AUDIO_ONLY_BUILD=1  # CRITICAL: Disables Video/CV code paths
+    # Prevent winsock.h/winsock2.h conflict on Windows
+    $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN>
     $<$<BOOL:${USE_RUBBERBAND}>:USE_RUBBERBAND=1>
     $<$<NOT:$<BOOL:${USE_RUBBERBAND}>>:USE_RUBBERBAND=0>
     # NO WITH_CUDA_SUPPORT
@@ -2364,7 +3005,7 @@ target_compile_definitions(PikonRaditszAudioApp PRIVATE
     $<$<BOOL:${ESSENTIA_FOUND}>:ESSENTIA_FOUND=1>
 )
 
-# Link Libraries (EXCLUDING OpenCV and FFmpeg)
+# Link Libraries (EXCLUDING OpenCV, but INCLUDING FFmpeg for audio streaming)
 target_link_libraries(PikonRaditszAudioApp PRIVATE
     juce::juce_gui_extra
     juce::juce_opengl
@@ -2385,7 +3026,11 @@ target_link_libraries(PikonRaditszAudioApp PRIVATE
     ufbx_static
     # NO OPENCV
     $<$<BOOL:${USE_RUBBERBAND}>:${RUBBERBAND_TARGET}>
-    # NO FFMPEG
+    # FFmpeg for audio streaming (Internet Radio, RTMP)
+    $<$<BOOL:${FFMPEG_FOUND}>:${AVFORMAT_LIBRARY}>
+    $<$<BOOL:${FFMPEG_FOUND}>:${AVCODEC_LIBRARY}>
+    $<$<BOOL:${FFMPEG_FOUND}>:${AVUTIL_LIBRARY}>
+    $<$<BOOL:${FFMPEG_FOUND}>:${SWRESAMPLE_LIBRARY}>
     # Piper TTS libraries (pre-built)
     ${ONNXRUNTIME_DIR}/lib/onnxruntime.lib
 )
@@ -2394,6 +3039,30 @@ target_link_libraries(PikonRaditszAudioApp PRIVATE
 # Actually, ole32 is needed for COM. strmiids might be needed for some audio stuff too?
 if(WIN32)
     target_link_libraries(PikonRaditszAudioApp PRIVATE ole32 strmiids)
+endif()
+
+# Link SRT if found (for SRT Receiver module)
+if(SRT_FOUND)
+    target_link_libraries(PikonRaditszAudioApp PRIVATE ${SRT_LIBRARIES})
+    if(SRT_INCLUDE_DIRS)
+        target_include_directories(PikonRaditszAudioApp PRIVATE ${SRT_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(PikonRaditszAudioApp PRIVATE HAS_SRT=1)
+endif()
+
+# Link WinRT for Bluetooth Audio and System Audio Capture (Windows only)
+if(WIN32 AND CPPWINRT_AVAILABLE)
+    target_link_libraries(PikonRaditszAudioApp PRIVATE WindowsApp.lib)
+    target_compile_definitions(PikonRaditszAudioApp PRIVATE HAS_WINRT_AUDIO=1)
+endif()
+
+# Link librtlsdr if found
+if(LIBRTLSDR_FOUND)
+    target_link_libraries(PikonRaditszAudioApp PRIVATE ${LIBRTLSDR_LIBRARIES})
+    if(LIBRTLSDR_INCLUDE_DIRS)
+        target_include_directories(PikonRaditszAudioApp PRIVATE ${LIBRTLSDR_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(PikonRaditszAudioApp PRIVATE HAS_LIBRTLSDR=1)
 endif()
 
 if(MSVC)
@@ -2470,5 +3139,37 @@ endif()
                 COMMENT "Copying Essentia data to PikonRaditszAudioApp output directory"
             )
         endif()
+    endif()
+    
+    # ==============================================================================
+    # Copy FFmpeg DLLs for PikonRaditszAudioApp (Audio streaming)
+    # ==============================================================================
+    if(FFMPEG_FOUND AND EXISTS "${FFMPEG_BIN_DIR}")
+        file(GLOB FFMPEG_DLLS_AUDIO "${FFMPEG_BIN_DIR}/*.dll")
+        if(FFMPEG_DLLS_AUDIO)
+            foreach(DLL ${FFMPEG_DLLS_AUDIO})
+                get_filename_component(DLL_NAME ${DLL} NAME)
+                add_custom_command(
+                    TARGET PikonRaditszAudioApp POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${DLL}"
+                            "$<TARGET_FILE_DIR:PikonRaditszAudioApp>"
+                    COMMENT "Copying ${DLL_NAME} to PikonRaditszAudioApp"
+                )
+            endforeach()
+        endif()
+    endif()
+    
+    # ==============================================================================
+    # Copy SRT DLL for PikonRaditszAudioApp (if found)
+    # ==============================================================================
+    if(SRT_FOUND AND SRT_DLL)
+        add_custom_command(
+            TARGET PikonRaditszAudioApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${SRT_DLL}"
+                    "$<TARGET_FILE_DIR:PikonRaditszAudioApp>"
+            COMMENT "Copying SRT DLL to PikonRaditszAudioApp"
+        )
     endif()
 

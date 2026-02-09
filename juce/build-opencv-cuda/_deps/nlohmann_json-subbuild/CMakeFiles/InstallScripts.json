@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/nlohmann_json-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

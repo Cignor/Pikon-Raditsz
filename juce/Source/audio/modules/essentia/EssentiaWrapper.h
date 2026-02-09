@@ -2,18 +2,6 @@
 
 #include <atomic>
 
-#ifdef ESSENTIA_FOUND
-// Forward declarations - Essentia headers included in .cpp to avoid polluting global namespace
-namespace essentia {
-    namespace standard {
-        class AlgorithmFactory;
-    }
-    namespace streaming {
-        class AlgorithmFactory;
-    }
-}
-#endif
-
 /**
  * Wrapper class for Essentia library initialization and utilities
  * Manages Essentia's initialization and provides helper functions

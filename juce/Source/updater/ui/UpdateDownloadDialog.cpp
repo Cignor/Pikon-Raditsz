@@ -1,5 +1,4 @@
 #include "UpdateDownloadDialog.h"
-#include "../HashVerifier.h"
 #include "../VersionManager.h"
 #include <algorithm>
 #include <vector>
@@ -20,7 +19,7 @@ void UpdateDownloadDialog::open(const UpdateInfo& info)
 
     // Initialise selection: all files that need an update are selected by default
     fileSelected.clear();
-    fileSelected.resize((size_t) updateInfo.filesToDownload.size(), true);
+    fileSelected.resize((size_t)updateInfo.filesToDownload.size(), true);
 }
 
 void UpdateDownloadDialog::showChecking()
@@ -144,11 +143,11 @@ void UpdateDownloadDialog::renderFileList()
     std::sort(filteredIndices.begin(), filteredIndices.end(), [this, &filesToShow](int a, int b) {
         const auto& fileA = filesToShow.getReference(a);
         const auto& fileB = filesToShow.getReference(b);
-        
+
         // Check if files need updating
         bool needsUpdateA = false;
         bool needsUpdateB = false;
-        
+
         for (const auto& f : updateInfo.filesToDownload)
         {
             if (f.relativePath == fileA.relativePath)
@@ -156,15 +155,15 @@ void UpdateDownloadDialog::renderFileList()
             if (f.relativePath == fileB.relativePath)
                 needsUpdateB = true;
         }
-        
+
         // Pending files come first
         if (needsUpdateA != needsUpdateB)
             return needsUpdateA; // true (pending) comes before false (installed)
-        
+
         // Within same group, critical files first
         if (fileA.critical != fileB.critical)
             return fileA.critical; // true (critical) comes before false (non-critical)
-        
+
         // Otherwise, alphabetical
         return fileA.relativePath < fileB.relativePath;
     });
@@ -205,9 +204,9 @@ void UpdateDownloadDialog::renderFileList()
 
             // File Name + small checkbox on the left (single line per item)
             ImGui::TableSetColumnIndex(0);
-            bool isSelected = (needsUpdate && downloadIndex >= 0 &&
-                               downloadIndex < (int) fileSelected.size() &&
-                               fileSelected[(size_t) downloadIndex]);
+            bool isSelected =
+                (needsUpdate && downloadIndex >= 0 && downloadIndex < (int)fileSelected.size() &&
+                 fileSelected[(size_t)downloadIndex]);
 
             juce::String checkboxId = "##select_" + file.relativePath;
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f)); // smaller checkbox
@@ -221,8 +220,8 @@ void UpdateDownloadDialog::renderFileList()
             {
                 if (ImGui::Checkbox(checkboxId.toRawUTF8(), &isSelected))
                 {
-                    if (downloadIndex >= 0 && downloadIndex < (int) fileSelected.size())
-                        fileSelected[(size_t) downloadIndex] = isSelected;
+                    if (downloadIndex >= 0 && downloadIndex < (int)fileSelected.size())
+                        fileSelected[(size_t)downloadIndex] = isSelected;
                 }
             }
             ImGui::PopStyleVar();
@@ -248,28 +247,31 @@ void UpdateDownloadDialog::renderFileList()
             ImGui::TableSetColumnIndex(3);
             juce::String localHash = getLocalHash(file.relativePath);
             juce::String remoteHash = file.sha256;
-            
+
             if (localHash.isEmpty())
             {
                 ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "N/A");
                 ImGui::SameLine();
                 ImGui::Text("|");
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", remoteHash.substring(0, 16).toRawUTF8());
+                ImGui::TextColored(
+                    ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", remoteHash.substring(0, 16).toRawUTF8());
             }
             else
             {
                 bool hashMatch = localHash.equalsIgnoreCase(remoteHash);
                 ImGui::TextColored(
                     hashMatch ? ImVec4(0.5f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                    "%s", localHash.substring(0, 16).toRawUTF8());
+                    "%s",
+                    localHash.substring(0, 16).toRawUTF8());
                 ImGui::SameLine();
                 ImGui::Text("|");
                 ImGui::SameLine();
                 ImGui::TextColored(
                     hashMatch ? ImVec4(0.5f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                    "%s", remoteHash.substring(0, 16).toRawUTF8());
-                
+                    "%s",
+                    remoteHash.substring(0, 16).toRawUTF8());
+
                 // Show full hash on hover
                 if (ImGui::IsItemHovered())
                 {
@@ -313,7 +315,7 @@ void UpdateDownloadDialog::renderControls()
         const auto& f = updateInfo.filesToDownload.getReference(i);
         totalPendingSize += f.size;
 
-        bool selected = (i >= 0 && i < (int) fileSelected.size() && fileSelected[(size_t) i]);
+        bool selected = (i >= 0 && i < (int)fileSelected.size() && fileSelected[(size_t)i]);
         if (selected)
         {
             selectedCount++;
@@ -323,14 +325,10 @@ void UpdateDownloadDialog::renderControls()
 
     if (updateInfo.updateAvailable)
     {
-        ImGui::Text(
-            "Summary: %d selected of %d pending",
-            selectedCount,
-            pendingCount);
+        ImGui::Text("Summary: %d selected of %d pending", selectedCount, pendingCount);
         ImGui::SameLine();
         ImGui::Text(
-            "| Selected Download Size: %s",
-            getFormattedFileSize(totalSelectedSize).toRawUTF8());
+            "| Selected Download Size: %s", getFormattedFileSize(totalSelectedSize).toRawUTF8());
     }
     else
     {
@@ -436,33 +434,16 @@ juce::String UpdateDownloadDialog::getLocalHash(const juce::String& relativePath
 {
     if (versionManager == nullptr)
         return {};
-    
-    // First, try to get hash from VersionManager (installed_files.json)
+
+    // Only return hash from VersionManager (installed_files.json)
+    // DO NOT calculate hash here - this is called during render loop!
     if (versionManager->hasFile(relativePath))
     {
         auto fileInfo = versionManager->getFileInfo(relativePath);
         return fileInfo.sha256;
     }
-    
-    // If not tracked, try to calculate hash from disk
-    auto installDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
-    auto localFile = installDir.getChildFile(relativePath);
-    
-    if (localFile.existsAsFile())
-    {
-        // Special handling for running EXE (can't hash locked file)
-        auto runningExePath = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
-        if (localFile == runningExePath)
-        {
-            // Can't hash running EXE, but if it's tracked, we already got the hash above
-            // If not tracked, return empty (will show as N/A)
-            return {};
-        }
-        
-        // For other files, calculate hash
-        return HashVerifier::calculateSHA256(localFile);
-    }
-    
+
+    // If not tracked, just return empty - don't freeze UI calculating hash
     return {};
 }
 
@@ -474,7 +455,7 @@ juce::Array<FileInfo> UpdateDownloadDialog::getSelectedFiles() const
     int numToDownload = updateInfo.filesToDownload.size();
     for (int i = 0; i < numToDownload; ++i)
     {
-        bool selected = (i >= 0 && i < (int) fileSelected.size() && fileSelected[(size_t) i]);
+        bool selected = (i >= 0 && i < (int)fileSelected.size() && fileSelected[(size_t)i]);
         if (selected)
             result.add(updateInfo.filesToDownload.getReference(i));
     }

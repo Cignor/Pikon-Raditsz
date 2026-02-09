@@ -1,0 +1,11 @@
+# ninja log v7
+4	172	7917296213709079	H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/juce-build/tools/CMakeFiles/cmake.verify_globs	790db892d53ac55b
+238	2523	7917296216042510	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_data_structures/juce_data_structures.cpp.obj	6e25362b3c4cc99e
+218	2835	7917296215843901	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_events/juce_events.cpp.obj	d59317aac466b8f
+183	3633	7917296215493183	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/juce_build_tools/juce_build_tools.cpp.obj	41bd72c132e2e9d5
+173	3673	7917296215399479	extras/Build/juceaide/CMakeFiles/juceaide.dir/Main.cpp.obj	48a8a4e82af3e844
+229	4285	7917296215951396	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_core/juce_core.cpp.obj	99e4fbfca6429fae
+204	4645	7917296215707086	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_graphics/juce_graphics.cpp.obj	8e07ed45c2f0305d
+193	9128	7917296215593118	extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_gui_basics/juce_gui_basics.cpp.obj	f75c9da51b77a9bf
+9130	10674	7917296304964191	extras/Build/juceaide/juceaide_artefacts/Debug/juceaide.exe	571a06213f0e9a76
+2	85	7917302959726403	H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/juce-build/tools/CMakeFiles/cmake.verify_globs	790db892d53ac55b

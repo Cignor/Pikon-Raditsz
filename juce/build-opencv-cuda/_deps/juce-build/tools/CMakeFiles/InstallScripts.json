@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/juce-build/tools/cmake_install.cmake",
+		"H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/juce-build/tools/modules/cmake_install.cmake",
+		"H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/juce-build/tools/extras/Build/cmake_install.cmake",
+		"H:/0000_CODE/01_collider_pyo/juce/build-opencv-cuda/_deps/juce-build/tools/extras/Build/juceaide/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% set title = 'Overview' %}
+
+{% block body %}
+<h1 id="search-documentation">Search</h1>
+<div id="fallback" class="admonition warning">
+<p>
+  Please activate JavaScript to enable the search
+  functionality.
+</p>
+</div>
+<p>
+  Searching for multiple words only shows matches that contain all words.
+</p>
+<form action="" method="get">
+  <input type="text" name="q" value="" />
+  <input type="submit" value="search" />
+  <span id="search-progress" style="padding-left: 10px"></span>
+</form>
+
+<div id="search-results">
+
+</div>
+{% endblock %}
+
+{% block extrafooter %}
+<script src="{{ pathto("_static/doctools.js", 1) }}"></script>
+<script src="{{ pathto("_static/documentation_options.js", 1) }}"></script>
+<script src="{{ pathto("_static/searchtools.js", 1) }}"></script>
+<script src="{{ pathto("_static/sphinx_highlight.js", 1) }}"></script>
+<script src="{{ pathto("_static/language_data.js", 1) }}"></script>
+<script src="{{ pathto("searchindex.js", 1) }}" defer></script>
+{% endblock %}

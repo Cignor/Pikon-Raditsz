@@ -78,23 +78,23 @@ static constexpr int         VERSION_PATCH = 5;           // ← Change this
 
 ---
 
-### 2. VersionManager Default Fallback (OPTIONAL - but recommended)
+### 2. VersionManager (Updater) Default Fallback (REQUIRED)
 
 **File:** `juce/Source/updater/VersionManager.cpp`
 
-**Location:** Line 7 (constructor)
+**Location:** Constructor (e.g. line 7)
 
-**Current value:**
+**Current value (example):**
 ```cpp
 : currentVersion("0.6.2") // Default version
 ```
 
-**Update to:**
+**Update to match VersionInfo.h (e.g. for 0.6.5):**
 ```cpp
-: currentVersion("0.6.5") // Default version
+: currentVersion("0.6.5") // Default version — must match VersionInfo.h
 ```
 
-**Why:** This is only used as a fallback if `installed_files.json` doesn't exist. It should match the patch version from VersionInfo.h to avoid confusion.
+**Why:** This is the **updater version**: the version shown in the "Software Update Available" / "You are up to date!" dialog. VersionManager now syncs `currentVersion` from `VersionInfo::getFullVersionString()` when it loads `installed_files.json` (or when the file doesn’t exist), so the dialog shows the actual running app version. You must still update this constructor default so it matches VersionInfo.h; otherwise a fresh install or first run before any load could show a stale version.
 
 ---
 
@@ -117,6 +117,11 @@ These files automatically read from `VersionInfo.h` or the manifest:
 - **Behavior:** Automatically uses the latest value from VersionInfo.h
 - **Action:** No changes needed
 
+### ✅ Updater dialog version
+- **File:** `juce/Source/updater/VersionManager.cpp`
+- **Behavior:** When VersionManager loads (from `installed_files.json` or on first run), it sets `currentVersion` from `VersionInfo::getFullVersionString()`, so the "You are up to date! (Version X)" text reflects the actual binary version.
+- **Action:** No changes needed to the sync logic; you must still update the **constructor default** in the same file (see §2 above) so it matches VersionInfo.h.
+
 ---
 
 ## Step-by-Step Version Increment Process
@@ -134,13 +139,13 @@ static constexpr const char* VERSION_FULL = "0.6.5-beta";
 static constexpr int         VERSION_PATCH = 5;
 ```
 
-### Step 2: Update VersionManager Fallback (Optional)
+### Step 2: Update VersionManager (Updater) Fallback (Required)
 
 1. Open `juce/Source/updater/VersionManager.cpp`
-2. Update the default version in the constructor to match the patch version
-3. Change `"0.6.2"` to `"0.6.5"`
+2. Update the default version in the constructor to match VersionInfo.h (e.g. `VERSION_FULL` without `-beta`, or full string depending on comparison logic).
+3. Example: change `"0.6.2"` to `"0.6.5"` (or `"0.6.5-beta"` if you keep the suffix).
 
-**Why optional:** This is only used if `installed_files.json` doesn't exist. But keeping it in sync prevents confusion.
+**Why required:** The updater dialog ("You are up to date! (Version X)") uses VersionManager. VersionManager syncs from VersionInfo when it loads, but the constructor default must still match so the updater never shows a stale version.
 
 ### Step 3: Rebuild Application
 
@@ -272,6 +277,16 @@ Check that all systems show the same version:
 2. Rebuild the application completely (clean build)
 3. Check that UI components use `VersionInfo::getFullVersionString()` (not hardcoded strings)
 
+### Problem: Updater dialog shows old version ("You are up to date! (Version X)")
+
+**Symptoms:**
+- Update dialog shows an older version than the one in VersionInfo.h
+
+**Solution:**
+1. Update VersionInfo.h and VersionManager.cpp constructor default to the new version.
+2. Rebuild the application. VersionManager syncs `currentVersion` from VersionInfo when it loads; after rebuild, the running binary is the new version and the dialog will show it.
+3. If you still see the old version, delete `%APPDATA%\Pikon Raditsz\installed_files.json` and restart the app (VersionManager will then use VersionInfo and save the new version).
+
 ---
 
 ## Best Practices
@@ -286,7 +301,7 @@ Check that all systems show the same version:
 ### ❌ DON'T:
 - **Don't hardcode version strings** in multiple places
 - **Don't forget to rebuild** after changing VersionInfo.h
-- **Don't skip VersionManager fallback update** (causes confusion)
+- **Don't skip VersionManager (updater) default update** (updater dialog will show wrong version)
 - **Don't upload manifest** without verifying version is correct
 
 ---
@@ -297,11 +312,11 @@ For **0.6.2 → 0.6.5**:
 
 - [ ] Update `VERSION_FULL` in `VersionInfo.h` to `"0.6.5-beta"`
 - [ ] Update `VERSION_PATCH` in `VersionInfo.h` to `5`
-- [ ] Update VersionManager default in `VersionManager.cpp` to `"0.6.5"`
+- [ ] Update **updater version**: VersionManager default in `VersionManager.cpp` to match (e.g. `"0.6.5"` or `"0.6.5-beta"`)
 - [ ] Rebuild application: `cmake --build juce\build-ninja-release --config Release`
 - [ ] Generate manifest: `.\updater\quick_generate.ps1`
 - [ ] Verify manifest.json shows `"latestVersion": "0.6.5-beta"`
-- [ ] Test UI displays correct version (splash screen, about dialog)
+- [ ] Test UI displays correct version (splash screen, about dialog, **updater dialog**)
 - [ ] Upload manifest and files to FTP server
 - [ ] Test auto-updater detects new version
 
@@ -313,7 +328,7 @@ For **0.6.2 → 0.6.5**:
 
 **Update Process:**
 1. Edit VersionInfo.h (change `VERSION_FULL` and `VERSION_PATCH`)
-2. Update VersionManager.cpp fallback (optional but recommended)
+2. Update VersionManager.cpp constructor default (updater version) to match VersionInfo.h
 3. Rebuild application
 4. Generate manifest (auto-detects version)
 5. Verify and deploy

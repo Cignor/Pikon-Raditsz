@@ -119,6 +119,14 @@ private:
     int              lastVignetteW = 0, lastVignetteH = 0;
     float            lastVignetteAmount = -1.f, lastVignetteSize = -1.f;
 
+    // Buffers for Wet/Dry Blending
+    cv::cuda::GpuMat gpuPreColor;
+    cv::cuda::GpuMat gpuPreFilters;
+    cv::cuda::GpuMat gpuPreMoreFilters;
+    cv::cuda::GpuMat gpuPreAdvanced;
+    cv::cuda::GpuMat gpuPreNewEffects;
+    cv::cuda::GpuMat gpuPreDistortion;
+
     // --- End of new buffers ---
 
     // --- GPU EFFECT FUNCTIONS ---
@@ -251,6 +259,14 @@ private:
     std::atomic<float>* chromaAberrationParam = nullptr;
     std::atomic<float>* zoomBlurAmountParam = nullptr;
 
+    // === WET/DRY MIXERS ===
+    juce::AudioParameterFloat* wetDryColorParam = nullptr;
+    juce::AudioParameterFloat* wetDryFiltersParam = nullptr;
+    juce::AudioParameterFloat* wetDryMoreFiltersParam = nullptr;
+    juce::AudioParameterFloat* wetDryAdvancedParam = nullptr;
+    juce::AudioParameterFloat* wetDryNewEffectsParam = nullptr;
+    juce::AudioParameterFloat* wetDryDistortionParam = nullptr;
+
     // Source ID (read from input pin)
     std::atomic<juce::uint32> currentSourceId{0};
     juce::uint32              cachedResolvedSourceId{0};
@@ -261,6 +277,14 @@ private:
 
     cv::Mat               lastFrameBgr;
     juce::CriticalSection frameLock;
+
+    // Buffers for Wet/Dry Blending (CPU)
+    cv::Mat cpuPreColor;
+    cv::Mat cpuPreFilters;
+    cv::Mat cpuPreMoreFilters;
+    cv::Mat cpuPreAdvanced;
+    cv::Mat cpuPreNewEffects;
+    cv::Mat cpuPreDistortion;
 
     juce::uint32 storedLogicalId{0};
 };
