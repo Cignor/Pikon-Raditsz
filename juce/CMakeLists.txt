@@ -1412,6 +1412,8 @@ target_sources(ColliderApp PRIVATE
     Source/audio/modules/ScopeModuleProcessor.cpp
     Source/audio/modules/StepSequencerModuleProcessor.h
     Source/audio/modules/StepSequencerModuleProcessor.cpp
+    Source/audio/modules/PolymetricSlicerModuleProcessor.h
+    Source/audio/modules/PolymetricSlicerModuleProcessor.cpp
     Source/audio/modules/MultiSequencerModuleProcessor.h
     Source/audio/modules/MultiSequencerModuleProcessor.cpp
     Source/audio/modules/ChordArpModuleProcessor.h
@@ -1897,6 +1899,8 @@ target_sources(PresetCreatorApp PRIVATE
     Source/audio/modules/ScopeModuleProcessor.cpp
     Source/audio/modules/StepSequencerModuleProcessor.h
     Source/audio/modules/StepSequencerModuleProcessor.cpp
+    Source/audio/modules/PolymetricSlicerModuleProcessor.h
+    Source/audio/modules/PolymetricSlicerModuleProcessor.cpp
     Source/audio/modules/MathModuleProcessor.h
     Source/audio/modules/MathModuleProcessor.cpp
     Source/audio/modules/MapRangeModuleProcessor.h
@@ -2762,6 +2766,8 @@ target_sources(PikonRaditszAudioApp PRIVATE
     Source/audio/modules/ScopeModuleProcessor.cpp
     Source/audio/modules/StepSequencerModuleProcessor.h
     Source/audio/modules/StepSequencerModuleProcessor.cpp
+    Source/audio/modules/PolymetricSlicerModuleProcessor.h
+    Source/audio/modules/PolymetricSlicerModuleProcessor.cpp
     Source/audio/modules/MathModuleProcessor.h
     Source/audio/modules/MathModuleProcessor.cpp
     Source/audio/modules/MapRangeModuleProcessor.h

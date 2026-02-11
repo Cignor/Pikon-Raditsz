@@ -18,7 +18,8 @@ public:
         StrokeSequencer,
         GraphicEQ,
         MultiBandShaper,
-        FunctionGenerator
+        FunctionGenerator,
+        PolymetricSlicer
     };
 
     // Get the singleton instance of the manager.

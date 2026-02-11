@@ -122,6 +122,7 @@ bool ImGuiNodeEditorComponent::s_globalGpuEnabled = true;
 #include "../audio/modules/MathModuleProcessor.h"
 #include "../audio/modules/StepSequencerModuleProcessor.h"
 #include "../audio/modules/MultiSequencerModuleProcessor.h"
+#include "../audio/modules/PolymetricSlicerModuleProcessor.h"
 #include "../audio/modules/StrokeSequencerModuleProcessor.h"
 #include "../audio/modules/AnimationModuleProcessor.h"
 #include "../audio/modules/TempoClockModuleProcessor.h"
@@ -3557,6 +3558,7 @@ void ImGuiNodeEditorComponent::renderImGui()
             addModuleButton("Snapshot Sequencer", "snapshot_sequencer");
             addModuleButton("Stroke Sequencer", "stroke_sequencer");
             addModuleButton("Chord Arp", "chord_arp");
+            addModuleButton("Polymetric Slicer", "polymetric_slicer");
             addModuleButton("Timeline", "timeline");
             addModuleButton("Automation Lane", "automation_lane");
             addModuleButton("Automato", "automato");
@@ -7707,6 +7709,8 @@ void ImGuiNodeEditorComponent::renderImGui()
                         addAtMouse("stroke_sequencer");
                     if (ImGui::MenuItem("Chord Arp"))
                         addAtMouse("chord_arp");
+                    if (ImGui::MenuItem("Polymetric Slicer"))
+                        addAtMouse("polymetric_slicer");
                     if (ImGui::MenuItem("Timeline"))
                         addAtMouse("timeline");
                     if (ImGui::MenuItem("Automation Lane"))
@@ -10807,7 +10811,8 @@ void ImGuiNodeEditorComponent::handleConnectSelectedToTrackMixer()
                 "midi_buttons",
                 "midi_faders",
                 "midi_knobs",
-                "midi_pads"};
+                "midi_pads",
+                "polymetric_slicer"};
 
             for (const auto& excluded : excludedModules)
             {
@@ -14893,6 +14898,9 @@ std::map<juce::String, std::pair<const char*, const char*>> ImGuiNodeEditorCompo
          {"cv_osc_sender",
           "Converts CV/Audio/Gate signals to OSC messages. Send internal signals over the network "
           "with configurable addresses."}},
+        {"Polymetric Slicer",
+         {"polymetric_slicer",
+          "Polymetric step sequencer and audio slicer with 4 independent timelines"}},
         {"CV -> OSC",
          {"cv_osc_sender",
           "Converts CV/Audio/Gate signals to OSC messages. Send internal signals over the network "

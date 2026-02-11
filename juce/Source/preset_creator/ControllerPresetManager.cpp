@@ -19,6 +19,7 @@ ControllerPresetManager::ControllerPresetManager()
     getDirectoryForType(ModuleType::GraphicEQ);
     getDirectoryForType(ModuleType::MultiBandShaper);
     getDirectoryForType(ModuleType::FunctionGenerator);
+    getDirectoryForType(ModuleType::PolymetricSlicer);
 
     // 3. Perform an initial scan to populate the cache.
     scanAllPresets();
@@ -106,6 +107,9 @@ juce::File ControllerPresetManager::getDirectoryForType(ModuleType type)
     case ModuleType::FunctionGenerator:
         subfolderName = "FunctionGenerator";
         break;
+    case ModuleType::PolymetricSlicer:
+        subfolderName = "PolymetricSlicer";
+        break;
     }
 
     auto dir = rootDirectory.getChildFile(subfolderName);
@@ -118,7 +122,7 @@ juce::File ControllerPresetManager::getDirectoryForType(ModuleType type)
 void ControllerPresetManager::scanAllPresets()
 {
     presetCache.clear();
-    for (int i = 0; i <= (int)ModuleType::FunctionGenerator; ++i)
+    for (int i = 0; i <= (int)ModuleType::PolymetricSlicer; ++i)
     {
         auto type = (ModuleType)i;
         auto dir = getDirectoryForType(type);

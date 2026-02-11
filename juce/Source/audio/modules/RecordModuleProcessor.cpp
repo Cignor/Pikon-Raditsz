@@ -12,10 +12,7 @@ RecordModuleProcessor::WriterThread::WriterThread(RecordModuleProcessor& o)
 {
 }
 
-RecordModuleProcessor::WriterThread::~WriterThread()
-{
-    stopThread(5000);
-}
+RecordModuleProcessor::WriterThread::~WriterThread() { stopThread(5000); }
 
 // This function is now private and runs ONLY on the background thread
 bool RecordModuleProcessor::WriterThread::doStartRecording()
@@ -33,17 +30,18 @@ bool RecordModuleProcessor::WriterThread::doStartRecording()
 
     // --- CRITICAL FIX #1: Auto-increment logic now happens AFTER extension is added ---
     juce::String chosenExtension = "." + owner.formatParam->getCurrentChoiceName().toLowerCase();
-    juce::File fileWithExt = file.withFileExtension(chosenExtension);
-    
+    juce::File   fileWithExt = file.withFileExtension(chosenExtension);
+
     juce::File fileToUse = fileWithExt;
     if (fileToUse.existsAsFile())
     {
-        int counter = 1;
+        int          counter = 1;
         juce::String originalName = fileWithExt.getFileNameWithoutExtension();
         while (fileToUse.existsAsFile())
         {
             juce::String counterStr = juce::String(counter++).paddedLeft('0', 3);
-            fileToUse = fileWithExt.getSiblingFile(originalName + "_" + counterStr + chosenExtension);
+            fileToUse =
+                fileWithExt.getSiblingFile(originalName + "_" + counterStr + chosenExtension);
         }
     }
     // --- END OF FIX ---
@@ -56,11 +54,13 @@ bool RecordModuleProcessor::WriterThread::doStartRecording()
     if (!fileStream->openedOk())
         return false;
 
-    writer.reset(format->createWriterFor(fileStream.release(),
-                                         owner.getSampleRate(),
-                                         2, // Stereo
-                                         24, // Bit depth
-                                         {}, 0));
+    writer.reset(format->createWriterFor(
+        fileStream.release(),
+        owner.getSampleRate(),
+        2,  // Stereo
+        24, // Bit depth
+        {},
+        0));
     if (writer != nullptr)
     {
         owner.currentFileRecording = fileToUse.getFullPathName();
@@ -90,7 +90,8 @@ void RecordModuleProcessor::WriterThread::run()
         }
 
         bool hasAudioToProcess = owner.abstractFifo.getNumReady() > 0;
-        bool shouldFinalize = !owner.isRecording.load() && !hasAudioToProcess && (writer != nullptr);
+        bool shouldFinalize =
+            !owner.isRecording.load() && !hasAudioToProcess && (writer != nullptr);
 
         if (hasAudioToProcess)
         {
@@ -101,13 +102,27 @@ void RecordModuleProcessor::WriterThread::run()
                 if (samplesAvailable > 0)
                 {
                     juce::AudioBuffer<float> tempBuffer(2, samplesAvailable);
-                    auto read = owner.abstractFifo.read(samplesAvailable);
-                    tempBuffer.copyFrom(0, 0, owner.fifoBuffer, 0, read.startIndex1, read.blockSize1);
-                    tempBuffer.copyFrom(1, 0, owner.fifoBuffer, 0, read.startIndex1, read.blockSize1);
+                    auto                     read = owner.abstractFifo.read(samplesAvailable);
+                    tempBuffer.copyFrom(
+                        0, 0, owner.fifoBuffer, 0, read.startIndex1, read.blockSize1);
+                    tempBuffer.copyFrom(
+                        1, 0, owner.fifoBuffer, 0, read.startIndex1, read.blockSize1);
                     if (read.blockSize2 > 0)
                     {
-                        tempBuffer.copyFrom(0, read.blockSize1, owner.fifoBuffer, 0, read.startIndex2, read.blockSize2);
-                        tempBuffer.copyFrom(1, read.blockSize1, owner.fifoBuffer, 0, read.startIndex2, read.blockSize2);
+                        tempBuffer.copyFrom(
+                            0,
+                            read.blockSize1,
+                            owner.fifoBuffer,
+                            0,
+                            read.startIndex2,
+                            read.blockSize2);
+                        tempBuffer.copyFrom(
+                            1,
+                            read.blockSize1,
+                            owner.fifoBuffer,
+                            0,
+                            read.startIndex2,
+                            read.blockSize2);
                     }
                     writer->writeFromAudioSampleBuffer(tempBuffer, 0, samplesAvailable);
                 }
@@ -128,7 +143,7 @@ void RecordModuleProcessor::WriterThread::run()
             wait(50);
         }
     }
-    
+
     if (writer != nullptr)
         writer.reset();
 }
@@ -138,33 +153,46 @@ void RecordModuleProcessor::WriterThread::run()
 juce::AudioProcessorValueTreeState::ParameterLayout RecordModuleProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
-    params.push_back(std::make_unique<juce::AudioParameterChoice>("format", "Format", juce::StringArray{"WAV", "AIFF", "FLAC"}, 0));
-    return { params.begin(), params.end() };
+    params.push_back(
+        std::make_unique<juce::AudioParameterChoice>(
+            "format", "Format", juce::StringArray{"WAV", "AIFF", "FLAC"}, 0));
+    params.push_back(
+        std::make_unique<juce::AudioParameterFloat>(
+            "ceiling", "Ceiling", juce::NormalisableRange<float>(-24.0f, 0.0f, 0.1f), -0.1f));
+    params.push_back(
+        std::make_unique<juce::AudioParameterBool>("use_agc", "Auto Gain Control", false));
+    params.push_back(
+        std::make_unique<juce::AudioParameterBool>("anti_clip", "Anti-Clipping", false));
+    return {params.begin(), params.end()};
 }
 
 RecordModuleProcessor::RecordModuleProcessor()
     : ModuleProcessor(BusesProperties().withInput("In", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "RecordParams", createParameterLayout()),
-      waveformFifoBuffer(4096),
+      apvts(*this, nullptr, "RecordParams", createParameterLayout()), waveformFifoBuffer(4096),
       writerThread(*this)
 {
     formatManager.registerBasicFormats();
     formatManager.registerFormat(new juce::FlacAudioFormat(), true);
     formatParam = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("format"));
+    ceilingParam = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("ceiling"));
+    agcParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("use_agc"));
+    antiClipParam = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("anti_clip"));
     writerThread.startThread();
-    
+
 #if defined(PRESET_CREATOR_UI)
     // Default to exe/record/ directory, create if it doesn't exist
-    auto exeDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
+    auto exeDir =
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
     auto recordDir = exeDir.getChildFile("record");
     if (recordDir.exists() && recordDir.isDirectory())
         saveDirectory = recordDir;
     else if (recordDir.createDirectory())
         saveDirectory = recordDir;
     else
-        saveDirectory = juce::File::getSpecialLocation(juce::File::userMusicDirectory); // Fallback to user music directory
+        saveDirectory = juce::File::getSpecialLocation(
+            juce::File::userMusicDirectory); // Fallback to user music directory
 #endif
-    
+
     waveformFifo.setTotalSize(4096);
 }
 
@@ -193,7 +221,7 @@ void RecordModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     if (!isRecording.load() || isPaused.load())
         return;
 
-    auto inBus = getBusBuffer(buffer, true, 0);
+    auto      inBus = getBusBuffer(buffer, true, 0);
     const int numSamples = inBus.getNumSamples();
 
     workBuffer.setSize(1, numSamples, false, false, true);
@@ -203,21 +231,91 @@ void RecordModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         workBuffer.addFrom(0, 0, inBus, 1, 0, numSamples);
         workBuffer.applyGain(0.5f);
     }
-    
+
+    // AGC Logic
+    if (agcParam->get())
+    {
+        // Simple peak envelope follower
+        float peak = 0.0f;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float absSample = std::abs(workBuffer.getSample(0, i));
+            if (absSample > peak)
+                peak = absSample;
+        }
+
+        // Smooth envelope
+        float attack = 0.9995f; // Slow attack
+        float release = 0.99f;  // Faster release
+
+        if (peak > envelope)
+            envelope = peak; // Instant attack for measurement
+        else
+            envelope = envelope * release;
+
+        // Target level -6dB (0.5)
+        float target = 0.5f;
+        float error = target - envelope;
+
+        // Adjust gain
+        // If too quiet (error > 0), boost slowly
+        // If too loud (error < 0), reduce fast
+        float adjustment = error > 0 ? 1.0001f : 0.995f;
+
+        if (envelope > target)
+            currentAgcGain *= 0.995f; // Fast reduction
+        else if (envelope < target)
+            currentAgcGain *= 1.0002f; // Very slow boost
+
+        // Clamp gain (0dB to +24dB)
+        currentAgcGain = juce::jlimit(1.0f, 15.8f, currentAgcGain);
+
+        workBuffer.applyGain(currentAgcGain);
+    }
+    else
+    {
+        currentAgcGain = 1.0f;
+        envelope = 0.0f;
+    }
+
+    // Clipping / Limiting
+    const float ceilingDb = ceilingParam->get();
+    const bool  useAntiClip = antiClipParam->get();
+    const float ceilingLin = juce::Decibels::decibelsToGain(ceilingDb);
+    float*      data = workBuffer.getWritePointer(0);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        if (useAntiClip)
+        {
+            // Soft clipper (tanh)
+            // x = input / ceiling
+            // out = tanh(x) * ceiling
+            if (ceilingLin > 0.0001f)
+                data[i] = std::tanh(data[i] / ceilingLin) * ceilingLin;
+        }
+        else
+        {
+            // Hard clip
+            data[i] = juce::jlimit(-ceilingLin, ceilingLin, data[i]);
+        }
+    }
+
     if (abstractFifo.getFreeSpace() >= numSamples)
     {
         auto write = abstractFifo.write(numSamples);
         if (write.blockSize1 > 0)
             fifoBuffer.copyFrom(0, write.startIndex1, workBuffer, 0, 0, write.blockSize1);
         if (write.blockSize2 > 0)
-            fifoBuffer.copyFrom(0, write.startIndex2, workBuffer, 0, write.blockSize1, write.blockSize2);
+            fifoBuffer.copyFrom(
+                0, write.startIndex2, workBuffer, 0, write.blockSize1, write.blockSize2);
         writerThread.notify();
     }
-    
+
     if (waveformFifo.getFreeSpace() >= 1)
     {
         float peak = workBuffer.getMagnitude(0, numSamples);
-        auto write = waveformFifo.write(1);
+        auto  write = waveformFifo.write(1);
         waveformFifoBuffer[write.startIndex1] = peak;
     }
     totalSamplesRecorded += numSamples;
@@ -225,8 +323,10 @@ void RecordModuleProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
 juce::String RecordModuleProcessor::getAudioInputLabel(int channel) const
 {
-    if (channel == 0) return "In L";
-    if (channel == 1) return "In R";
+    if (channel == 0)
+        return "In L";
+    if (channel == 1)
+        return "In R";
     return {};
 }
 
@@ -240,9 +340,9 @@ void RecordModuleProcessor::programmaticStartRecording()
         juce::String filenameToSave = autoGeneratedPrefix + juce::String(userSuffixBuffer);
         if (filenameToSave.isEmpty())
             filenameToSave = "recording";
-        
+
         juce::File fileToSave = saveDirectory.getChildFile(filenameToSave);
-        
+
         // Use the async request method
         requestStartRecording(fileToSave);
     }
@@ -271,7 +371,7 @@ void RecordModuleProcessor::requestStartRecording(const juce::File& file)
 void RecordModuleProcessor::updateSuggestedFilename(const juce::String& sourceName)
 {
     juce::String timeString = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
-    
+
     if (sourceName.isEmpty())
     {
         // No source provided, mark as unconnected
@@ -299,13 +399,35 @@ void RecordModuleProcessor::setPropertiesFile(juce::PropertiesFile* props)
     }
 }
 
-void RecordModuleProcessor::drawParametersInNode(float /*itemWidth*/, const std::function<bool(const juce::String&)>&, const std::function<void()>&)
+void RecordModuleProcessor::drawParametersInNode(
+    float /*itemWidth*/,
+    const std::function<bool(const juce::String&)>&,
+    const std::function<void()>&)
 {
     // Use a wider, fixed width for this node to ensure everything fits
     const float nodeWidth = 350.0f;
     ImGui::PushItemWidth(nodeWidth);
     const auto& theme = ThemeManager::getInstance().getCurrentTheme();
-    
+
+    // Ceiling Control
+    float ceilingVal = ceilingParam->get();
+    ImGui::Text("Clipping Ceiling");
+    if (ImGui::SliderFloat("##ceiling", &ceilingVal, -24.0f, 0.0f, "%.1f dB"))
+    {
+        *ceilingParam = ceilingVal;
+    }
+
+    // Checkboxes
+    bool agc = agcParam->get();
+    if (ImGui::Checkbox("Auto Gain", &agc))
+        *agcParam = agc;
+
+    ImGui::SameLine();
+
+    bool antiClip = antiClipParam->get();
+    if (ImGui::Checkbox("Anti-Clip", &antiClip))
+        *antiClipParam = antiClip;
+
     if (isRecording.load() || !currentFileRecording.isEmpty())
     {
         if (isPaused.load())
@@ -326,17 +448,21 @@ void RecordModuleProcessor::drawParametersInNode(float /*itemWidth*/, const std:
             if (read.blockSize2 > 0)
                 for (int i = 0; i < read.blockSize2; ++i)
                     waveformData.push_back(waveformFifoBuffer[read.startIndex2 + i]);
-            
+
             const int max_display_points = 2000;
             if (waveformData.size() > max_display_points)
-                waveformData.erase(waveformData.begin(), waveformData.begin() + (waveformData.size() - max_display_points));
+                waveformData.erase(
+                    waveformData.begin(),
+                    waveformData.begin() + (waveformData.size() - max_display_points));
         }
-        
-        ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-        ImVec2 canvas_sz = ImVec2(nodeWidth, 60.0f);
+
+        ImVec2      canvas_p0 = ImGui::GetCursorScreenPos();
+        ImVec2      canvas_sz = ImVec2(nodeWidth, 60.0f);
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        ImU32 bgCol = theme.canvas.canvas_background == 0 ? IM_COL32(30, 30, 30, 255) : theme.canvas.canvas_background;
-        draw_list->AddRectFilled(canvas_p0, ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y), bgCol);
+        ImU32       bgCol = theme.canvas.canvas_background == 0 ? IM_COL32(30, 30, 30, 255)
+                                                                : theme.canvas.canvas_background;
+        draw_list->AddRectFilled(
+            canvas_p0, ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y), bgCol);
         if (!waveformData.empty())
         {
             float max_val = 1.0f;
@@ -347,22 +473,30 @@ void RecordModuleProcessor::drawParametersInNode(float /*itemWidth*/, const std:
             }
             for (size_t i = 0; i + 1 < waveformData.size(); ++i)
             {
-                ImVec2 p1 = ImVec2(canvas_p0.x + ((float)i / waveformData.size()) * canvas_sz.x,
-                                   canvas_p0.y + (1.0f - (waveformData[i] / max_val)) * canvas_sz.y);
-                ImVec2 p2 = ImVec2(canvas_p0.x + ((float)(i + 1) / waveformData.size()) * canvas_sz.x,
-                                   canvas_p0.y + (1.0f - (waveformData[i + 1] / max_val)) * canvas_sz.y);
-                draw_list->AddLine(p1, p2, theme.modules.scope_plot_fg != 0 ? theme.modules.scope_plot_fg : IM_COL32(120, 255, 120, 255));
+                ImVec2 p1 = ImVec2(
+                    canvas_p0.x + ((float)i / waveformData.size()) * canvas_sz.x,
+                    canvas_p0.y + (1.0f - (waveformData[i] / max_val)) * canvas_sz.y);
+                ImVec2 p2 = ImVec2(
+                    canvas_p0.x + ((float)(i + 1) / waveformData.size()) * canvas_sz.x,
+                    canvas_p0.y + (1.0f - (waveformData[i + 1] / max_val)) * canvas_sz.y);
+                draw_list->AddLine(
+                    p1,
+                    p2,
+                    theme.modules.scope_plot_fg != 0 ? theme.modules.scope_plot_fg
+                                                     : IM_COL32(120, 255, 120, 255));
             }
             if (max_val > 1.0f)
             {
                 float clip_y = canvas_p0.y + (1.0f - (1.0f / max_val)) * canvas_sz.y;
-                draw_list->AddLine(ImVec2(canvas_p0.x, clip_y),
-                                   ImVec2(canvas_p0.x + canvas_sz.x, clip_y),
-                                   ImGui::ColorConvertFloat4ToU32(theme.text.error), 1.5f);
+                draw_list->AddLine(
+                    ImVec2(canvas_p0.x, clip_y),
+                    ImVec2(canvas_p0.x + canvas_sz.x, clip_y),
+                    ImGui::ColorConvertFloat4ToU32(theme.text.error),
+                    1.5f);
             }
         }
         ImGui::Dummy(canvas_sz);
-        
+
         if (ImGui::Button("Stop", ImVec2(nodeWidth, 0)))
         {
             writerThread.stopRecording();
@@ -371,10 +505,12 @@ void RecordModuleProcessor::drawParametersInNode(float /*itemWidth*/, const std:
     else // --- NEW, SIMPLIFIED IDLE STATE UI ---
     {
         // Load the last saved directory if available, but prefer exe/record/ if it doesn't exist
-        auto exeDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
+        auto exeDir =
+            juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
         auto defaultRecordDir = exeDir.getChildFile("record");
-        
-        // If saveDirectory is still at default location, try to load from properties or use exe/record/
+
+        // If saveDirectory is still at default location, try to load from properties or use
+        // exe/record/
         if (propertiesFile)
         {
             juce::String lastPath = propertiesFile->getValue("lastRecorderPath");
@@ -391,33 +527,35 @@ void RecordModuleProcessor::drawParametersInNode(float /*itemWidth*/, const std:
         {
             saveDirectory = defaultRecordDir;
         }
-        
+
         // This layout provides more space as requested
         ImGui::Text("Save Location:");
         ImGui::TextWrapped("%s", saveDirectory.getFullPathName().toRawUTF8());
         if (ImGui::Button("Browse...", ImVec2(nodeWidth, 0)))
         {
-            fileChooser = std::make_unique<juce::FileChooser>("Choose Save Directory", saveDirectory);
-            fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this](const juce::FileChooser& fc)
-            {
-                auto dir = fc.getResult();
-                if (dir.isDirectory())
-                {
-                    saveDirectory = dir;
-                    // Save the path for next time
-                    if (propertiesFile)
-                        propertiesFile->setValue("lastRecorderPath", dir.getFullPathName());
-                }
-            });
+            fileChooser =
+                std::make_unique<juce::FileChooser>("Choose Save Directory", saveDirectory);
+            fileChooser->launchAsync(
+                juce::FileBrowserComponent::openMode |
+                    juce::FileBrowserComponent::canSelectDirectories,
+                [this](const juce::FileChooser& fc) {
+                    auto dir = fc.getResult();
+                    if (dir.isDirectory())
+                    {
+                        saveDirectory = dir;
+                        // Save the path for next time
+                        if (propertiesFile)
+                            propertiesFile->setValue("lastRecorderPath", dir.getFullPathName());
+                    }
+                });
         }
-        
-        
+
         // Filename Prefix (read-only) + Suffix (editable)
         ImGui::Text("Filename Prefix:");
         ImGui::TextWrapped("%s", autoGeneratedPrefix.toRawUTF8());
 
         ImGui::InputText("Suffix", userSuffixBuffer, sizeof(userSuffixBuffer));
-        
+
         int formatIdx = formatParam->getIndex();
         if (ImGui::Combo("Format", &formatIdx, "WAV\0AIFF\0FLAC\0\0"))
         {
@@ -426,7 +564,8 @@ void RecordModuleProcessor::drawParametersInNode(float /*itemWidth*/, const std:
 
         // Full filename preview
         juce::String chosenExtension = "." + formatParam->getCurrentChoiceName().toLowerCase();
-        juce::String finalName = autoGeneratedPrefix + juce::String(userSuffixBuffer) + chosenExtension;
+        juce::String finalName =
+            autoGeneratedPrefix + juce::String(userSuffixBuffer) + chosenExtension;
         ImGui::Text("Final Name Preview:");
         ImGui::TextWrapped("%s", finalName.toRawUTF8());
 
@@ -435,12 +574,12 @@ void RecordModuleProcessor::drawParametersInNode(float /*itemWidth*/, const std:
             juce::String filenameToSave = autoGeneratedPrefix + juce::String(userSuffixBuffer);
             if (filenameToSave.isEmpty())
                 filenameToSave = "recording";
-            
+
             juce::File fileToSave = saveDirectory.getChildFile(filenameToSave);
             requestStartRecording(fileToSave);
         }
     }
-    
+
     ImGui::PopItemWidth();
 }
 

@@ -116,6 +116,9 @@ void populateModuleDescriptions()
         "A sequencer that stores and recalls complete patch states.";
     descriptions["chord_arp"] =
         "Harmony brain node that generates chords and simple arpeggios from CV inputs.";
+    descriptions["polymetric_slicer"] =
+        "Polymetric sequencer with 4 independent timelines, checkerboard grid, audio slicing, "
+        "and CV output (pitch, gate, trigger). Each timeline loops at a different bar length.";
     // Analysis
     descriptions["scope"] = "Visualizes an audio or CV signal.";
     descriptions["debug"] = "A tool for logging signal value changes.";
@@ -479,6 +482,41 @@ void populatePinDatabase()
          AudioPin("High Trig", 9, PinDataType::Gate)},
         {} // No modulation inputs
     );
+    db["polymetric_slicer"] = ModulePinInfo(
+        NodeWidth::Exception, // Custom size (560px wide)
+        {AudioPin("TL1 In L", 0, PinDataType::Audio),
+         AudioPin("TL1 In R", 1, PinDataType::Audio),
+         AudioPin("TL2 In L", 2, PinDataType::Audio),
+         AudioPin("TL2 In R", 3, PinDataType::Audio),
+         AudioPin("TL3 In L", 4, PinDataType::Audio),
+         AudioPin("TL3 In R", 5, PinDataType::Audio),
+         AudioPin("TL4 In L", 6, PinDataType::Audio),
+         AudioPin("TL4 In R", 7, PinDataType::Audio),
+         AudioPin("TL1 Mod", 8, PinDataType::CV),
+         AudioPin("TL2 Mod", 9, PinDataType::CV),
+         AudioPin("TL3 Mod", 10, PinDataType::CV),
+         AudioPin("TL4 Mod", 11, PinDataType::CV)},
+        {AudioPin("TL1 Audio L", 0, PinDataType::Audio),
+         AudioPin("TL1 Audio R", 1, PinDataType::Audio),
+         AudioPin("TL2 Audio L", 2, PinDataType::Audio),
+         AudioPin("TL2 Audio R", 3, PinDataType::Audio),
+         AudioPin("TL3 Audio L", 4, PinDataType::Audio),
+         AudioPin("TL3 Audio R", 5, PinDataType::Audio),
+         AudioPin("TL4 Audio L", 6, PinDataType::Audio),
+         AudioPin("TL4 Audio R", 7, PinDataType::Audio),
+         AudioPin("TL1 Pitch", 8, PinDataType::CV),
+         AudioPin("TL1 Gate", 9, PinDataType::Gate),
+         AudioPin("TL1 Trigger", 10, PinDataType::Gate),
+         AudioPin("TL2 Pitch", 11, PinDataType::CV),
+         AudioPin("TL2 Gate", 12, PinDataType::Gate),
+         AudioPin("TL2 Trigger", 13, PinDataType::Gate),
+         AudioPin("TL3 Pitch", 14, PinDataType::CV),
+         AudioPin("TL3 Gate", 15, PinDataType::Gate),
+         AudioPin("TL3 Trigger", 16, PinDataType::Gate),
+         AudioPin("TL4 Pitch", 17, PinDataType::CV),
+         AudioPin("TL4 Gate", 18, PinDataType::Gate),
+         AudioPin("TL4 Trigger", 19, PinDataType::Gate)},
+        {});
     db["chorus"] = ModulePinInfo(
         NodeWidth::Medium,
         {AudioPin("In L", 0, PinDataType::Audio),

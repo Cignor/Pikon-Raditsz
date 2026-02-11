@@ -25,6 +25,7 @@
 #include "../modules/ScopeModuleProcessor.h"
 #include "../modules/SAndHModuleProcessor.h"
 #include "../modules/StepSequencerModuleProcessor.h"
+#include "../modules/PolymetricSlicerModuleProcessor.h"
 #include "../modules/MathModuleProcessor.h"
 #include "../modules/MapRangeModuleProcessor.h"
 #include "../modules/RandomModuleProcessor.h"
@@ -1172,6 +1173,8 @@ static std::map<juce::String, Creator>& getModuleFactory()
 
         reg("stroke_sequencer", [] { return std::make_unique<StrokeSequencerModuleProcessor>(); });
         reg("chord_arp", [] { return std::make_unique<ChordArpModuleProcessor>(); });
+        reg("polymetric_slicer",
+            [] { return std::make_unique<PolymetricSlicerModuleProcessor>(); });
 
         // reg("meta_module", []{ return std::make_unique<MetaModuleProcessor>(); });
         // reg("meta module", []{ return std::make_unique<MetaModuleProcessor>(); });
